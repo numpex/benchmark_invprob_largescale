@@ -15,8 +15,8 @@ dataset:
 
 solver:
   - PnPStreamSimAIBench:
-      orchestrator_name: process-pool
-      server_type: filesystem
+      orchestrator_name: ["process-pool", "ray"]
+      server_type: ["filesystem", "redis"]
       device: cpu
       ncpus: 2
       ngpus: 0

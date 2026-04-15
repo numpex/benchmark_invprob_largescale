@@ -193,9 +193,20 @@ class Solver(BaseSolver):
             "Check SimAI-Bench logs for component failures."
         )
 
+    @staticmethod
+    def _ensure_simaibench_logdir():
+        """Ensure SimAI-Bench can create logs under cwd/logs."""
+        logs_dir = Path.cwd() / "logs"
+        if logs_dir.exists() and not logs_dir.is_dir():
+            raise RuntimeError(
+                f"Cannot create SimAI-Bench logs: '{logs_dir}' exists and is not a directory."
+            )
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
     def run(self, n_iter=None):
         del n_iter
         self._ensure_worker_pythonpath()
+        self._ensure_simaibench_logdir()
         compute_device = (
             torch.device("cuda")
             if self.device == "cuda" and torch.cuda.is_available()

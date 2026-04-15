@@ -8,7 +8,8 @@ slurm_additional_parameters:
   cpus-per-task: 10
   # Fill these for your cluster:
   qos: qos_gpu-dev
-  account:
+  account: # Fill this for your cluster
+  constraint: "v100-32g"
 slurm_array_parallelism: 1
 slurm_setup:
   - module purge
