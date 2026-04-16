@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -88,6 +89,97 @@ def run_simulation(
     result = subprocess.run(cmd)
     if result.returncode != 0:
         raise RuntimeError(f"Simulation failed with code {result.returncode}")
+
+
+def run_simulation_with_params(
+    config: dict,
+    job_params: dict,
+    image_override: str | None = None,
+) -> None:
+    """Run generation inside the container with explicit job parameters.
+
+    Unlike ``run_simulation()``, which reads a fixed YAML config file, this
+    function accepts job parameters as a dict, writes a temporary YAML
+    (accessible from the container through the bind-mount), and passes it to
+    ``generate_radio_data.py``.
+
+    Parameters
+    ----------
+    config : dict
+        Must contain a ``singularity`` key with at least ``image_path``, and
+        optionally ``mount_point`` and ``working_dir``.
+    job_params : dict
+        Parameters for the ``job`` section consumed by
+        ``generate_radio_data.py``. Must include at least ``fits_name``,
+        ``image_size`` (a list), and ``data_path`` (container-absolute path).
+    image_override : str or None
+        Override the container image path from config.
+    """
+    repo_root = get_repo_root()
+    image_path = resolve_image_path(config, image_override)
+
+    runtime = shutil.which("apptainer") or shutil.which("singularity")
+    if runtime is None:
+        raise RuntimeError("Neither apptainer nor singularity is available.")
+
+    working_dir = config["singularity"].get("working_dir", "/workspace")
+    mount_point = config["singularity"].get("mount_point", "/workspace")
+
+    cache_dir = repo_root / "debug_output" / "cache"
+    mpl_dir = repo_root / "debug_output" / "mpl_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    mpl_dir.mkdir(parents=True, exist_ok=True)
+
+    container_cache = f"{mount_point}/debug_output/cache"
+    container_mpl = f"{mount_point}/debug_output/mpl_cache"
+
+    # Write a temporary job config inside the bind-mounted repo so the
+    # container can read it at a deterministic container-absolute path.
+    temp_dir = repo_root / "benchmark_inference" / "data" / "radio_interferometry"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=temp_dir,
+            prefix="_prepare_",
+            suffix=".yaml",
+            mode="w",
+            delete=False,
+        ) as tmp:
+            yaml.dump({"job": job_params}, tmp)
+            tmp_path = Path(tmp.name)
+
+        container_config_path = (
+            f"{mount_point}/{tmp_path.relative_to(repo_root)}"
+        )
+
+        cmd = [
+            runtime,
+            "exec",
+            "--nv",
+            "-B",
+            f"{repo_root}:{mount_point}",
+            "--env",
+            f"XDG_CACHE_HOME={container_cache},MPLCONFIGDIR={container_mpl}",
+            "--pwd",
+            working_dir,
+            str(image_path),
+            "python",
+            f"{mount_point}/src/toolsbench/utils/generate_radio_data.py",
+            "--config",
+            container_config_path,
+        ]
+
+        print(f"Running command: {' '.join(cmd)}", flush=True)
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Simulation failed with return code {result.returncode}"
+            )
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink()
 
 
 def submit_slurm_job(

@@ -1,0 +1,50 @@
+# ── Benchopt run / prepare configuration ──────────────────────────────────────
+# Used by:  benchopt run    . --config configs/radio_prepare_test_config.yaml
+#           benchopt prepare . --config configs/radio_prepare_test_config.yaml
+#
+# All simulation parameters live in the `dataset` block so that benchopt
+# manages the prepare cache key automatically.  Changing any value here and
+# re-running `benchopt prepare --force` will regenerate the MS files.
+
+objective:
+  - reconstruction_objective
+
+dataset:
+  - radio_prepare_test:
+      # ── image / benchmark ────────────────────────────────────────────────
+      fits_name: "m101_g.fits"   # filename only; resolved via get_data_path("radio_interferometry")
+      image_size: 512
+      noise_level: 0.1
+      seed: 42
+      # ── observation geometry ─────────────────────────────────────────────
+      pos_ra: 155.66367
+      pos_dec: -30.7130
+      random_position: true
+      # ── frequency / time ─────────────────────────────────────────────────
+      number_of_time_steps: 256
+      start_frequency_hz: 1.300e9
+      end_frequency_hz: 1.340e9
+      number_of_channels: 1
+      # ── simulator options ─────────────────────────────────────────────────
+      add_noise: true
+      pol_mode: "Full"
+      use_gpus: false   # runtime only — does not affect the MS hash
+      # ── singularity container ─────────────────────────────────────────────
+      # null → image resolved automatically via get_data_path("containers")/karabo.sif
+      # Set to an absolute or repo-relative path to override.
+      singularity_image_path: null
+      singularity_mount_point: "/workspace"
+      singularity_working_dir: "/workspace/benchmark_inference"
+
+solver:
+  - PnP:
+      denoiser: drunet
+      denoiser_sigma: [0.2]
+      distribute_physics: False
+      distribute_denoiser: False
+      init_method: ["adjoint"]
+      norm_strategy: ["dynamic"]
+      step_size_scale: [0.01]
+      slurm_gres, slurm_ntasks_per_node, distribute_physics, distribute_denoiser, patch_size, denoiser_sigma, denoiser_lambda_relaxation: [
+        ["gpu:0", 4, true, true, [512], 0.1, 0.05]
+      ]
