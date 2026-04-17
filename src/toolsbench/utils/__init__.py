@@ -7,8 +7,6 @@ including visualization and data loading helpers.
 from .solver_utils import (
     compute_step_size_from_operator as compute_step_size_from_operator,
     initialize_reconstruction as initialize_reconstruction,
-    normalize_to_unit as normalize_to_unit,
-    denormalize_from_unit as denormalize_from_unit,
 )
 
 import math
@@ -26,7 +24,7 @@ except ImportError:
     DRUNet = None
 
 
-def tensor_to_numpy(tensor):
+def tensor_to_numpy(tensor, clip=True):
     """Convert tensor to numpy array suitable for visualization.
 
     Parameters
@@ -59,7 +57,8 @@ def tensor_to_numpy(tensor):
         img = img.squeeze(-1)
 
     # Clip to valid range
-    img = torch.clamp(img, 0, 1)
+    if clip:
+        img = torch.clamp(img, 0, 1)
 
     return img.numpy()
 
@@ -97,7 +96,7 @@ def save_measurements_figure(
     axes_flat = axes.flatten()
 
     # Plot ground truth
-    gt_img = tensor_to_numpy(ground_truth)
+    gt_img = tensor_to_numpy(ground_truth, clip=False)
     axes_flat[0].imshow(gt_img, cmap="gray" if gt_img.ndim == 2 else None)
     axes_flat[0].set_title("Ground Truth", fontsize=12, fontweight="bold")
     axes_flat[0].axis("off")
@@ -128,6 +127,8 @@ def save_comparison_figure(
     output_dir="evaluation_output",
     filename="comparison.png",
     evaluation_count=None,
+    vmin=None,
+    vmax=None,
 ):
     """Save a comparison figure showing ground truth and reconstruction side by side.
 
@@ -145,6 +146,10 @@ def save_comparison_figure(
         Name of the output file. Default: "comparison.png".
     evaluation_count : int, optional
         Evaluation number to display in title.
+    vmin : float, optional
+        Lower bound used for both displays.
+    vmax : float, optional
+        Upper bound used for both displays.
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -152,19 +157,28 @@ def save_comparison_figure(
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
     # Plot ground truth
-    gt_img = tensor_to_numpy(ground_truth)
-    axes[0].imshow(gt_img, cmap="gray" if gt_img.ndim == 2 else None)
+    gt_img = tensor_to_numpy(ground_truth, clip=False)
+    axes[0].imshow(
+        gt_img,
+        cmap="gray" if gt_img.ndim == 2 else None,
+        vmin=vmin,
+        vmax=vmax,
+    )
     axes[0].set_title("Ground Truth", fontsize=14, fontweight="bold")
     axes[0].axis("off")
 
     # Plot reconstruction
-    recon_img = tensor_to_numpy(reconstruction)
+    recon_img = tensor_to_numpy(reconstruction, clip=False)
     psnr = metrics.get("psnr", 0)
     ssim = metrics.get("ssim", 0)
-    lpips = metrics.get("lpips", 0)
-    axes[1].imshow(recon_img, cmap="gray" if recon_img.ndim == 2 else None)
+    axes[1].imshow(
+        recon_img,
+        cmap="gray" if recon_img.ndim == 2 else None,
+        vmin=vmin,
+        vmax=vmax,
+    )
     axes[1].set_title(
-        f"Reconstruction\nPSNR: {psnr:.2f} dB, SSIM: {ssim:.4f}, LPIPS: {lpips:.4f}",
+        f"Reconstruction\nPSNR: {psnr:.2f} dB, SSIM: {ssim:.4f}",
         fontsize=14,
         fontweight="bold",
     )

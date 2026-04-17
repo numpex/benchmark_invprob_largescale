@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 from benchopt import BaseObjective
-from deepinv.loss.metric import PSNR, SSIM, MSE, LPIPS
+from deepinv.loss.metric import PSNR, SSIM, MSE
 from astropy.io import fits
 
 from toolsbench.utils import save_comparison_figure
@@ -39,6 +39,7 @@ class Objective(BaseObjective):
         max_pixel=1.0,
         ground_truth_shape=None,
         num_operators=None,
+        **kwargs,
     ):
         """Set the data from a Dataset to compute the objective.
 
@@ -58,10 +59,13 @@ class Objective(BaseObjective):
             Shape of ground truth tensor.
         num_operators : int, optional
             Number of operators in stacked physics.
+        **kwargs :
+            Extra dataset-specific parameters forwarded to the solver
         """
         self.ground_truth = ground_truth
         self.measurement = measurement
         self.physics = physics
+        self._extra_kwargs = kwargs
         self.ground_truth_shape = (
             ground_truth_shape if ground_truth_shape is not None else ground_truth.shape
         )
@@ -69,7 +73,6 @@ class Objective(BaseObjective):
         self.psnr_metric = PSNR(max_pixel=max_pixel)
         self.ssim_metric = SSIM(max_pixel=max_pixel)
         self.mse_metric = MSE()
-        self.lpips_metric = LPIPS()
         self.min_pixel = min_pixel
         self.max_pixel = max_pixel
         self.evaluation_count = 0
@@ -89,6 +92,7 @@ class Objective(BaseObjective):
             num_operators=self.num_operators,
             min_pixel=self.min_pixel,
             max_pixel=self.max_pixel,
+            **self._extra_kwargs,
         )
 
     def evaluate_result(self, reconstruction, name, **kwargs):
@@ -130,7 +134,6 @@ class Objective(BaseObjective):
             psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
             ssim_tensor = self.ssim_metric(reconstruction, ground_truth)
             mse_tensor = self.mse_metric(reconstruction, ground_truth)
-            lpips_tensor = self.lpips_metric(reconstruction, ground_truth)
 
             # Handle batch case - take mean across batch dimension
             psnr = (
@@ -148,11 +151,6 @@ class Objective(BaseObjective):
                 if mse_tensor.numel() > 1
                 else mse_tensor.item()
             )
-            lpips = (
-                lpips_tensor.mean().item()
-                if lpips_tensor.numel() > 1
-                else lpips_tensor.item()
-            )
             # )
 
             # Save comparison figure
@@ -162,10 +160,12 @@ class Objective(BaseObjective):
                 self.ground_truth,
                 reconstruction,
                 # metrics={'psnr': psnr, 'ssim': ssim},
-                metrics={"psnr": psnr, "ssim": ssim, "mse": mse, "lpips": lpips},
+                metrics={"psnr": psnr, "ssim": ssim, "mse": mse},
                 output_dir=output_dir,
                 filename=f"eval_{self.evaluation_count:04d}.png",
                 evaluation_count=self.evaluation_count,
+                vmin=self.min_pixel,
+                vmax=self.max_pixel,
             )
 
             reconstruction_np = (
@@ -178,7 +178,7 @@ class Objective(BaseObjective):
             fits.PrimaryHDU(reconstruction_np).writeto(fits_path, overwrite=True)
 
         # Return value (primary metric for stopping criterion) and additional metrics
-        result = dict(value=-psnr, psnr=psnr, ssim=ssim, mse=mse, lpips=lpips)
+        result = dict(value=-psnr, psnr=psnr, ssim=ssim, mse=mse)
 
         # Add all non-None metrics from kwargs to result
         for key, value in kwargs.items():

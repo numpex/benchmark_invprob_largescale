@@ -6,6 +6,7 @@ and distributed PnP solvers.
 """
 
 import torch
+import copy
 
 
 def compute_step_size_from_operator(operator, ground_truth: torch.Tensor) -> float:
@@ -36,7 +37,9 @@ def initialize_reconstruction(
     operator,
     measurements,
     device: torch.device,
-    method: str = "pseudo_inverse",
+    method: str = "adjoint",
+    clip_range: tuple = None,
+    weights: torch.Tensor = None,
 ) -> torch.Tensor:
     """Initialize the reconstruction signal.
 
@@ -57,6 +60,8 @@ def initialize_reconstruction(
           images / bounded domains).
         - ``"adjoint"``: ``x_0 = Aᵀy`` without clamping (radio, tomography,
           or any unbounded physical domain).
+    clip_range: (sig_min, sig_max) for scaling the dirty image
+    weights: Optional density weights for weighted dirty image
 
     Returns
     -------
@@ -67,11 +72,36 @@ def initialize_reconstruction(
         return torch.zeros(signal_shape, device=device)
 
     elif method == "pseudo_inverse":
-        x_init = operator.A_dagger(measurements)
-        return x_init.clamp(0, 1)
+        if weights is not None:
+            # Create a temporary weighted operator for a sharper init
+            weighted_op = copy.deepcopy(operator)
+            weighted_op.setWeight(weights.to(device))
+            dirty = weighted_op.A_dagger(measurements)
+        else:
+            dirty = operator.A_dagger(measurements)
+
+        if clip_range is not None:
+            sig_min, sig_max = clip_range
+            # Peak-normalize dirty image to signal range and clamp
+            x_init = dirty * sig_max / dirty.max()
+            x_init = x_init.clamp(sig_min, sig_max)
+        return x_init
 
     elif method == "adjoint":
-        return operator.A_adjoint(measurements)
+        if weights is not None:
+            # Create a temporary weighted operator for a sharper init
+            weighted_op = copy.deepcopy(operator)
+            weighted_op.setWeight(weights.to(device))
+            dirty = weighted_op.A_adjoint(measurements)
+        else:
+            dirty = operator.A_adjoint(measurements)
+
+        if clip_range is not None:
+            sig_min, sig_max = clip_range
+            # Peak-normalize dirty image to signal range and clamp
+            x_init = dirty * sig_max / dirty.max()
+            x_init = x_init.clamp(sig_min, sig_max)
+        return x_init
 
     else:
         raise ValueError(
@@ -79,55 +109,3 @@ def initialize_reconstruction(
             "Choose from 'zeros', 'pseudo_inverse', or 'adjoint'."
         )
 
-
-def normalize_to_unit(x: torch.Tensor, eps: float = 1e-10):
-    """Normalize a tensor to [0, 1] using its current min/max.
-
-    Returns the normalized tensor together with the offset and scale so the
-    mapping can be inverted with :func:`denormalize_from_unit`.
-
-    Parameters
-    ----------
-    x : torch.Tensor
-        Input tensor (any shape).
-    eps : float, optional
-        Minimum scale to avoid division by zero. Default: 1e-10.
-
-    Returns
-    -------
-    x_01 : torch.Tensor
-        Tensor normalized to [0, 1].
-    norm_min : float
-        Minimum value used for normalization.
-    norm_scale : float
-        Scale = max - min (clamped to ``eps``).
-    """
-    norm_min = x.min().item()
-    norm_scale = max((x.max() - x.min()).item(), eps)
-    x_01 = (x - norm_min) / norm_scale
-    return x_01, norm_min, norm_scale
-
-
-def denormalize_from_unit(
-    x_01: torch.Tensor, norm_min: float, norm_scale: float
-) -> torch.Tensor:
-    """Inverse of :func:`normalize_to_unit`.
-
-    Maps a tensor from [0, 1] back to the original physical domain using
-    the offset and scale returned by :func:`normalize_to_unit`.
-
-    Parameters
-    ----------
-    x_01 : torch.Tensor
-        Tensor in [0, 1].
-    norm_min : float
-        Offset (minimum of original tensor).
-    norm_scale : float
-        Scale (max - min of original tensor).
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor in the original physical domain.
-    """
-    return x_01 * norm_scale + norm_min
