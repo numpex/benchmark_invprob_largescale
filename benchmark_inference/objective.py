@@ -4,6 +4,7 @@ This objective evaluates reconstruction quality using PSNR and SSIM metrics,
 and optionally saves comparison figures for visual inspection.
 """
 
+import math
 from pathlib import Path
 
 import torch
@@ -153,14 +154,23 @@ class Objective(BaseObjective):
             )
             # )
 
+            # asinh-PSNR
+            beta = self.max_pixel * 1e-2  # softening scale: transition at 1% of peak
+            asinh_gt = torch.arcsinh(ground_truth / beta)
+            asinh_recon = torch.arcsinh(reconstruction / beta)
+            asinh_range = math.asinh(self.max_pixel / beta) - math.asinh(self.min_pixel / beta)
+            mse_asinh = ((asinh_recon - asinh_gt) ** 2).mean().item()
+            asinh_psnr = (
+                10.0 * math.log10(asinh_range**2 / mse_asinh) if mse_asinh > 0 else float("inf")
+            )
+
             # Save comparison figure
             output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
             self.evaluation_count += 1
             save_comparison_figure(
                 self.ground_truth,
                 reconstruction,
-                # metrics={'psnr': psnr, 'ssim': ssim},
-                metrics={"psnr": psnr, "ssim": ssim, "mse": mse},
+                metrics={"psnr": psnr, "ssim": ssim, "mse": mse, "asinh_psnr": asinh_psnr},
                 output_dir=output_dir,
                 filename=f"eval_{self.evaluation_count:04d}.png",
                 evaluation_count=self.evaluation_count,
@@ -178,7 +188,7 @@ class Objective(BaseObjective):
             fits.PrimaryHDU(reconstruction_np).writeto(fits_path, overwrite=True)
 
         # Return value (primary metric for stopping criterion) and additional metrics
-        result = dict(value=-psnr, psnr=psnr, ssim=ssim, mse=mse)
+        result = dict(value=-asinh_psnr, psnr=psnr, ssim=ssim, mse=mse, asinh_psnr=asinh_psnr)
 
         # Add all non-None metrics from kwargs to result
         for key, value in kwargs.items():

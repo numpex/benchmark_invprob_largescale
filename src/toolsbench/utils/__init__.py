@@ -12,6 +12,7 @@ from .solver_utils import (
 import math
 from pathlib import Path
 import matplotlib.pyplot as plt
+import numpy as np
 
 try:
     import torch
@@ -154,35 +155,60 @@ def save_comparison_figure(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    fig, axes = plt.subplots(2, 2, figsize=(12, 12))
 
-    # Plot ground truth
     gt_img = tensor_to_numpy(ground_truth, clip=False)
-    axes[0].imshow(
+    recon_img = tensor_to_numpy(reconstruction, clip=False)
+    psnr = metrics.get("psnr", 0)
+    ssim = metrics.get("ssim", 0)
+    asinh_psnr = metrics.get("asinh_psnr", None)
+
+    # --- Row 0: linear scale ---
+    axes[0, 0].imshow(
         gt_img,
         cmap="gray" if gt_img.ndim == 2 else None,
         vmin=vmin,
         vmax=vmax,
     )
-    axes[0].set_title("Ground Truth", fontsize=14, fontweight="bold")
-    axes[0].axis("off")
+    axes[0, 0].set_title("Ground Truth (linear)", fontsize=13, fontweight="bold")
+    axes[0, 0].axis("off")
 
-    # Plot reconstruction
-    recon_img = tensor_to_numpy(reconstruction, clip=False)
-    psnr = metrics.get("psnr", 0)
-    ssim = metrics.get("ssim", 0)
-    axes[1].imshow(
+    recon_title = f"Reconstruction (linear)\nPSNR: {psnr:.2f} dB, SSIM: {ssim:.4f}"
+    if asinh_psnr is not None:
+        recon_title += f"\nasinh-PSNR: {asinh_psnr:.2f} dB"
+    axes[0, 1].imshow(
         recon_img,
         cmap="gray" if recon_img.ndim == 2 else None,
         vmin=vmin,
         vmax=vmax,
     )
-    axes[1].set_title(
-        f"Reconstruction\nPSNR: {psnr:.2f} dB, SSIM: {ssim:.4f}",
-        fontsize=14,
-        fontweight="bold",
+    axes[0, 1].set_title(recon_title, fontsize=13, fontweight="bold")
+    axes[0, 1].axis("off")
+
+    # --- Row 1: asinh scale ---
+    beta_display = max(gt_img.max() * 1e-2, 1e-10)
+    asinh_gt_img = np.arcsinh(gt_img / beta_display)
+    asinh_recon_img = np.arcsinh(recon_img / beta_display)
+    asinh_vmin = np.arcsinh(gt_img.min() / beta_display)
+    asinh_vmax = np.arcsinh(gt_img.max() / beta_display)
+
+    axes[1, 0].imshow(
+        asinh_gt_img,
+        cmap="gray" if asinh_gt_img.ndim == 2 else None,
+        vmin=asinh_vmin,
+        vmax=asinh_vmax,
     )
-    axes[1].axis("off")
+    axes[1, 0].set_title("Ground Truth (asinh)", fontsize=13, fontweight="bold")
+    axes[1, 0].axis("off")
+
+    axes[1, 1].imshow(
+        asinh_recon_img,
+        cmap="gray" if asinh_recon_img.ndim == 2 else None,
+        vmin=asinh_vmin,
+        vmax=asinh_vmax,
+    )
+    axes[1, 1].set_title("Reconstruction (asinh)", fontsize=13, fontweight="bold")
+    axes[1, 1].axis("off")
 
     # Add overall title if evaluation count provided
     if evaluation_count is not None:
