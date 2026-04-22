@@ -30,7 +30,9 @@ dataset:
       pol_mode: "Full"
       use_gpus: false   # runtime only — does not affect the MS hash
       # ── singularity container ─────────────────────────────────────────────
-      # null → image resolved automatically via get_data_path("containers")/karabo.sif
+      # null → image resolved from:
+      #         1) $SINGULARITY_ALLOWED_DIR/karabo.sif if env var is set
+      #         2) get_data_path("containers")/karabo.sif otherwise
       # Set to an absolute or repo-relative path to override.
       singularity_image_path: null
       singularity_mount_point: "/workspace"

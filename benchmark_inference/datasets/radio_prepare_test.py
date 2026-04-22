@@ -31,6 +31,8 @@ therefore part of the prepare cache key by default.  The exceptions are:
 
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -94,22 +96,76 @@ class Dataset(BaseDataset):
     # ------------------------------------------------------------------
 
     @classmethod
-    def _resolve_image_path(cls, image_path_param):
+    def _default_image_path(cls):
+        """Return the default host path for the Karabo Singularity image."""
+        try:
+            containers_dir = Path(benchopt_config.get_data_path("containers"))
+        except Exception:
+            # Fallback: benchmark_inference/data/containers (relative to this file)
+            containers_dir = Path(__file__).parent.parent / "data" / "containers"
+        return containers_dir / "karabo.sif"
+
+    @classmethod
+    def _probe_singularity_allowed_dir(cls, try_module_load=False):
+        """Return SINGULARITY_ALLOWED_DIR, optionally probing via module load.
+
+        On some clusters (e.g. Jean Zay), this variable is only available after
+        loading the singularity module. If ``try_module_load`` is True and the
+        variable is missing, this probes a login shell, tries to initialize
+        environment modules, loads singularity, and reads the variable.
+        """
+        allowed_dir = os.environ.get("SINGULARITY_ALLOWED_DIR")
+        if allowed_dir:
+            return Path(allowed_dir).expanduser()
+
+        if not try_module_load:
+            return None
+
+        probe_script = r"""
+set +e
+if ! command -v module >/dev/null 2>&1; then
+  [ -r /etc/profile ] && . /etc/profile >/dev/null 2>&1
+  [ -r /etc/profile.d/modules.sh ] && . /etc/profile.d/modules.sh >/dev/null 2>&1
+  [ -r /etc/profile.d/lmod.sh ] && . /etc/profile.d/lmod.sh >/dev/null 2>&1
+  [ -r /usr/share/lmod/lmod/init/bash ] && . /usr/share/lmod/lmod/init/bash >/dev/null 2>&1
+fi
+if command -v module >/dev/null 2>&1; then
+  module load singularity >/dev/null 2>&1 || true
+fi
+printf "%s" "${SINGULARITY_ALLOWED_DIR:-}"
+"""
+        try:
+            res = subprocess.run(
+                ["bash", "-lc", probe_script],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            discovered = (res.stdout or "").strip()
+        except Exception:
+            discovered = ""
+
+        if discovered:
+            os.environ["SINGULARITY_ALLOWED_DIR"] = discovered
+            return Path(discovered).expanduser()
+        return None
+
+    @classmethod
+    def _resolve_image_path(cls, image_path_param, try_module_load=False):
         """Resolve the Singularity image path from a parameter value.
 
-        None           → get_data_path("containers") / "karabo.sif"
+        None           → $SINGULARITY_ALLOWED_DIR/karabo.sif if env var is set,
+                         otherwise get_data_path("containers") / "karabo.sif"
         relative str   → repo_root / value
         absolute str   → used as-is
         """
         if image_path_param is None:
-            try:
-                containers_dir = Path(
-                    benchopt_config.get_data_path("containers")
-                )
-            except Exception:
-                # Fallback: benchmark_inference/data/containers (relative to this file)
-                containers_dir = Path(__file__).parent.parent / "data" / "containers"
-            return containers_dir / "karabo.sif"
+            allowed_dir = cls._probe_singularity_allowed_dir(
+                try_module_load=try_module_load
+            )
+            if allowed_dir is not None:
+                return allowed_dir / "karabo.sif"
+            return cls._default_image_path()
 
         image_path = Path(image_path_param)
         if not image_path.is_absolute():
@@ -125,9 +181,10 @@ class Dataset(BaseDataset):
     def is_installed(cls, env_name=None, quiet=True, **kwargs):
         """Return True when all runtime dependencies are available.
 
-        Checks that required Python packages are importable and that the
-        Singularity image pulled by install_radio_test.sh is present on disk.
-        Data readiness is a separate concern handled by prepare().
+        Checks that required Python packages are importable.
+        Also probes SINGULARITY_ALLOWED_DIR (with optional module load) so the
+        singularity runtime context is validated early during benchopt checks.
+        Data and container image readiness are handled in ``prepare()``.
         """
         try:
             import astropy
@@ -139,14 +196,14 @@ class Dataset(BaseDataset):
         except ImportError:
             return False
 
-        try:
-            image_path = cls._resolve_image_path(
-                cls.parameters["singularity_image_path"][0]
+        # Probe in the install gate path too (not only in prepare()) to catch
+        # cluster environments where this var appears only after module load.
+        allowed_dir = cls._probe_singularity_allowed_dir(try_module_load=True)
+        if not quiet and cls.parameters["singularity_image_path"][0] is None:
+            print(
+                f"[DEBUG is_installed()] SINGULARITY_ALLOWED_DIR={allowed_dir}",
+                flush=True,
             )
-            if not image_path.exists():
-                return False
-        except Exception:
-            return False
 
         return True
 
@@ -215,7 +272,31 @@ class Dataset(BaseDataset):
                 "Configure it via --config configs/radio_prepare_test_config.yaml."
             )
 
-        image_path = self._resolve_image_path(self.singularity_image_path)
+        allowed_dir = self._probe_singularity_allowed_dir(try_module_load=True)
+        if self.singularity_image_path is None:
+            print(
+                f"[DEBUG prepare()] SINGULARITY_ALLOWED_DIR={allowed_dir}",
+                flush=True,
+            )
+        image_path = self._resolve_image_path(
+            self.singularity_image_path, try_module_load=False
+        )
+        if (
+            self.singularity_image_path is None
+            and allowed_dir is not None
+            and not image_path.exists()
+        ):
+            default_image = self._default_image_path()
+            if default_image.exists():
+                image_path.parent.mkdir(parents=True, exist_ok=True)
+                if image_path.resolve() != default_image.resolve():
+                    shutil.copy2(default_image, image_path)
+            else:
+                raise FileNotFoundError(
+                    f"Image not found at {image_path} (from SINGULARITY_ALLOWED_DIR) "
+                    f"and default image is missing at {default_image}. "
+                    "Run install first to pull karabo.sif."
+                )
 
         # Ensure the source FITS file exists on the host before launching the
         # container (the container accesses it through the bind-mount).
