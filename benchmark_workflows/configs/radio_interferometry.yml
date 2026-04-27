@@ -34,5 +34,3 @@ solver:
 
 max-runs: 1
 n-repetitions: 1
-plot: false
-html: false
