@@ -1,0 +1,71 @@
+method: equivariant_full
+
+general:
+  input_dir: /lustre/fswork/projects/rech/fio/commun/cryolithe/empiar-11830
+  output_root: ./runs
+  run_name: demo-cryo-ei-full
+  execution_mode: submitit   # change to 'slurm' to submit via submitit
+  max_train_vols: 8   # null = all non-val volumes
+  max_val_vols: 8
+  seed: 0
+  target_shape: null
+
+training:
+  num_epochs: 10
+  learning_rate: 1.0e-4
+  # Exponential decay: lr * gamma^epoch, floored at lr_min.
+  # gamma = 10^{-1/10} ≈ 0.7943 → 1e-4 drops to 1e-5 at epoch 10.
+  scheduler_gamma: 0.7943
+  scheduler_lr_min: 5.0e-6
+  grad_clip: 1.0
+  ckp_interval: 10
+  eval_interval: 1
+  # Accumulate gradients over this many full volumes before each optimiser step.
+  # Compensates for DataLoader batch_size=1.
+  grad_accumulation_steps: 4
+
+data:
+  batch_size: 1          # always 1 full volume per item
+  num_workers: 1
+  pin_memory: true
+  prefetch_factor: 1
+  persistent_workers: true
+
+distributed:
+  # UNet tile size — must be strictly < target_shape in every dimension.
+  patch_size: [128, 128, 128]
+  overlap: [8, 8, 8]
+  # Maximum number of tiles processed simultaneously on the GPU.
+  # Reduce to save VRAM; increase to improve throughput.
+  max_batch_size: 1
+  # Gradient checkpointing inside the distributed tiled forward pass.
+  checkpoint_batches: "auto"
+
+equivariant:
+  tilt_max: 60.0
+  tilt_min: -60.0
+  use_spherical_support: true
+  # MUST stay false for full volumes: doubling a 512³ FFT is infeasible (~4 GB complex64).
+  wedge_double_size: false
+  use_fourier: false
+  view_as_real: true
+  eq_weight: 2.0
+  # Set to true to compute PSNR vs *icecream*.mrc files found alongside EVN/ODD.
+  use_icecream_gt: true
+
+slurm:
+  job_name: demo-cryo-ei-full
+  nodes: 4
+  gpus_per_node: 4
+  ntasks_per_node: 4
+  cpus_per_task: 20
+  time: "02:00:00"
+  account: "fio@a100"
+  constraint: "a100"
+  qos: "qos_gpu_a100-dev"
+  stderr_to_stdout: true
+  setup:
+    - "module purge"
+    - "module load arch/a100"
+    - "module load pytorch-gpu/py3/2.7.0"
+    - "export NCCL_DEBUG=INFO"

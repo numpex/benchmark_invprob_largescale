@@ -39,34 +39,45 @@ def plot_metrics(run_dir: Path, save: Path | str | None = None) -> None:
     train_df = pd.read_csv(train_csv) if train_csv.exists() else pd.DataFrame()
     val_df = pd.read_csv(val_csv) if val_csv.exists() else pd.DataFrame()
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    # Detect individual loss columns (exclude meta / total / PSNR columns)
+    _skip = {"epoch", "lr", "step", "gradient_norm", "TotalLoss"}
+    individual_loss_cols = [
+        c for c in train_df.columns
+        if c not in _skip and "psnr" not in c.lower() and not train_df.empty
+    ]
+    # Layout: [losses (total + components) | PSNR]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
     fig.suptitle("Training summary", fontsize=13)
 
-    # ── Train loss ──────────────────────────────────────────────────────────
+    # ── Train losses (total + components) in log scale ──────────────────────
     ax = axes[0]
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    color_idx = 0
     if not train_df.empty and "TotalLoss" in train_df.columns:
-        ax.plot(train_df["epoch"], train_df["TotalLoss"], "o-", color="steelblue")
-    ax.set_title("Train loss")
+        ax.plot(train_df["epoch"], train_df["TotalLoss"], "o-",
+                color=colors[color_idx], linewidth=2, label="TotalLoss")
+        color_idx += 1
+    for col in individual_loss_cols:
+        ax.plot(train_df["epoch"], train_df[col], "s--",
+                color=colors[color_idx % len(colors)], label=col)
+        color_idx += 1
+    ax.set_yscale("log")
+    ax.set_title("Train loss (log scale)")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
-    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3, which="both")
 
     # ── Train + Val PSNR ────────────────────────────────────────────────────
     ax = axes[1]
     psnr_col = next((c for c in train_df.columns if "psnr" in c.lower()), None)
     if not train_df.empty and psnr_col:
-        ax.plot(
-            train_df["epoch"],
-            train_df[psnr_col],
-            "o-",
-            color="darkorange",
-            label="Train",
-        )
+        ax.plot(train_df["epoch"], train_df[psnr_col], "o-",
+                color="darkorange", label="Train")
     psnr_col_val = next((c for c in val_df.columns if "psnr" in c.lower()), None)
     if not val_df.empty and psnr_col_val:
-        ax.plot(
-            val_df["epoch"], val_df[psnr_col_val], "s--", color="seagreen", label="Val"
-        )
+        ax.plot(val_df["epoch"], val_df[psnr_col_val], "s--",
+                color="seagreen", label="Val")
     ax.set_title("PSNR")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("PSNR (dB)")
