@@ -110,12 +110,10 @@ class CryoEIFullDataset(Dataset):
             dtype=np.float32,
         )  # (Z, Y, X) as stored in MRC
         vol = np.moveaxis(vol, 0, 2)   # → (Y, X, Z)
-        mu, sigma = vol.mean(), vol.std()
-        vol = (vol - mu) / (sigma + 1e-8)
-        return vol  # (Y, X, Z), zero-mean unit-std
+        return vol  # (Y, X, Z), raw float32
 
     def _load_and_prepare(self, path: Path) -> torch.Tensor:
-        """Load, normalise, optional trilinear resample, add channel → (1, D, H, W)."""
+        """Load, optional trilinear resample, centre-crop to cube, normalise → (1, D, H, W)."""
         vol_np = self._load_mrc(path)          # (Y, X, Z) = (D, H, W)
         vol = torch.from_numpy(vol_np)         # (D, H, W)
 
@@ -128,7 +126,18 @@ class CryoEIFullDataset(Dataset):
                 align_corners=False,
             ).squeeze(0).squeeze(0)  # back to (D, H, W)
 
-        return vol.unsqueeze(0)  # (1, D, H, W)
+        # Centre-crop to cube of side min(D, H, W)
+        D, H, W = vol.shape
+        S = min(D, H, W)
+        d0, h0, w0 = (D - S) // 2, (H - S) // 2, (W - S) // 2
+        vol = vol[d0:d0 + S, h0:h0 + S, w0:w0 + S]  # (S, S, S)
+
+        # Normalise after crop so stats reflect the kept region
+        mu = vol.mean()
+        sigma = vol.std()
+        vol = (vol - mu) / (sigma + 1e-8)
+
+        return vol.unsqueeze(0)  # (1, S, S, S)
 
 
 # ---------------------------------------------------------------------------

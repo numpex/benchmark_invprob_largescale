@@ -13,10 +13,11 @@ Forward operator A matches icecream's get_measurement exactly:
     4. ifftshift + ifftn.real  — back to real space at mask_size
     5. crop output to original x shape
 
-When wedge_double_size=True  (icecream default):
-    mask_size = 2 * crop_size, and ``mask`` has shape (mask_size+1)³
-When wedge_double_size=False:
-    mask_size = crop_size      →  no zero-padding, mask applied at native size
+Volumes are always cubic (centre-cropped to min-dim before reaching here):
+    When wedge_double_size=True  (icecream default):
+        mask_size = 2 * crop_size, and ``mask`` has shape (mask_size+1)³
+    When wedge_double_size=False:
+        mask_size = crop_size      →  no zero-padding, mask applied at native size
 
 The operator is self-adjoint (A = Aᵀ) because the mask is real and binary.
 """
@@ -46,6 +47,11 @@ class MissingWedge(dinv.physics.LinearPhysics):
         volume the mask will be applied to.  ``None`` = cubic (legacy behaviour).
     :param bool use_spherical_support: Enforce spherical support in Fourier space (default True).
     :param bool wedge_double_size: Build mask at 2× the cubic side (icecream default True).
+    :param float wedge_low_support: Radius² of a low-frequency ball forced to 1 in the input wedge
+        (icecream ``wedge_low_support``). 0 = no leakage (icecream default); 0.1 = 10% low-freq kept.
+    :param float ref_wedge_support: Same parameter for the reference wedge used in EqLoss
+        (icecream ``ref_wedge_support``). 1.0 = full unit sphere set to 1 (icecream default),
+        meaning the equivariance reference sees the complete spectrum.
     :param str device: Device string (default 'cpu').
     """
 
@@ -57,6 +63,8 @@ class MissingWedge(dinv.physics.LinearPhysics):
         volume_shape: tuple[int, int, int] | None = None,
         use_spherical_support: bool = True,
         wedge_double_size: bool = True,
+        wedge_low_support: float = 0.0,
+        ref_wedge_support: float = 1.0,
         device: str = "cpu",
     ) -> None:
         super().__init__()
@@ -80,6 +88,7 @@ class MissingWedge(dinv.physics.LinearPhysics):
             mask_size,
             tilt_max,
             tilt_min,
+            low_support=wedge_low_support,
             use_spherical_support=use_spherical_support,
         )
         mask = torch.from_numpy(wedge_np.astype(np.float32))  # (mask_size+1,)*3
@@ -105,6 +114,7 @@ class MissingWedge(dinv.physics.LinearPhysics):
             max_dim,
             tilt_max,
             tilt_min,
+            low_support=ref_wedge_support,
             use_spherical_support=use_spherical_support,
         )
         mask_ref = torch.from_numpy(wedge_ref_np.astype(np.float32))  # (max_dim+1,)*3
@@ -143,7 +153,7 @@ class MissingWedge(dinv.physics.LinearPhysics):
             torch.fft.fftn(x, s=mask_dims, dim=(-3, -2, -1)),
             dim=(-3, -2, -1),
         )
-        # mask may have shape (D+1,H+1,W+1) — broadcast over batch/channel dims
+        # mask may have shape (mask_size+1,)³ — broadcast over batch/channel dims
         X_masked = X * self.mask
 
         # Back to real space, then crop to original volume size

@@ -73,12 +73,24 @@ class FullVolEvaluator:
                     continue
 
                 def _load(path: Path) -> torch.Tensor:
-                    vol_np = CryoEIFullDataset._load_mrc(path)       # (Y,X,Z) after moveaxis
-                    vol = torch.from_numpy(vol_np).unsqueeze(0).unsqueeze(0)  # (1,1,D,H,W)
+                    # Mirrors _load_and_prepare exactly: resample → centre-crop → normalise
+                    vol_np = CryoEIFullDataset._load_mrc(path)       # (Y,X,Z) raw float
+                    vol = torch.from_numpy(vol_np)                   # (D,H,W)
                     if self.target_shape is not None:
-                        vol = F.interpolate(vol, size=self.target_shape,
-                                            mode="trilinear", align_corners=False)
-                    return vol
+                        vol = F.interpolate(
+                            vol.unsqueeze(0).unsqueeze(0),
+                            size=self.target_shape,
+                            mode="trilinear",
+                            align_corners=False,
+                        ).squeeze(0).squeeze(0)
+                    # Centre-crop to cube
+                    D, H, W = vol.shape
+                    S = min(D, H, W)
+                    d0, h0, w0 = (D - S) // 2, (H - S) // 2, (W - S) // 2
+                    vol = vol[d0:d0 + S, h0:h0 + S, w0:w0 + S]
+                    # Normalise after crop
+                    vol = (vol - vol.mean()) / (vol.std() + 1e-8)
+                    return vol.unsqueeze(0).unsqueeze(0)             # (1,1,S,S,S)
 
                 x  = _load(evn_path).to(self.device)
                 gt = _load(ice_path).to(self.device)
@@ -168,12 +180,17 @@ class RunEIFullConfig:
     tilt_max: float = 60.0
     tilt_min: float = -60.0
     use_spherical_support: bool = True
-    wedge_double_size: bool = False      # MUST be False for full volumes (memory)
+    wedge_double_size: bool = False     
+    wedge_low_support: float = 0.0
+    ref_wedge_support: float = 1.0
 
     # ── EI loss ─────────────────────────────────────────────────────────────
     eq_weight: float = 2.0
     use_fourier: bool = False
     view_as_real: bool = True
+    # If True, use plain spatial MSE for the equivariance loss instead of
+    # Fourier-masked fourier_loss_batch (icecream eq_use_direct). Default False = paper setting.
+    eq_use_direct: bool = False
 
     # ── Distributed model tiling (mirrors supervised RunConfig) ─────────────
     patch_size: tuple[int, int, int] = (64, 64, 64)
@@ -292,18 +309,16 @@ def run_training(cfg: RunEIFullConfig) -> None:
             vol_size = _resolve_vol_size(data_bundle, cfg)
 
         # ── Physics ──────────────────────────────────────────────────────────
-        # MissingWedge reused unchanged — instantiated with full vol_size.
+        # MissingWedge — volumes are always cubic (centre-cropped in _load_and_prepare).
         # wedge_double_size=False: 2×vol_size FFT would be infeasible for large volumes.
-        # Pass volume_shape so MissingWedge builds a (D+1,H+1,W+1) wedge
-        # instead of always assuming a cubic (vol_size+1)^3 one.
-        _vshape = tuple(int(v) for v in cfg.target_shape) if cfg.target_shape is not None else None
         physics = MissingWedge(
             tilt_max=float(cfg.tilt_max),
             tilt_min=float(cfg.tilt_min),
             crop_size=vol_size,
-            volume_shape=_vshape,
             use_spherical_support=bool(cfg.use_spherical_support),
             wedge_double_size=bool(cfg.wedge_double_size),
+            wedge_low_support=float(cfg.wedge_low_support),
+            ref_wedge_support=float(cfg.ref_wedge_support),
             device=str(ctx.device),
         ).to(ctx.device)
 
@@ -349,7 +364,8 @@ def run_training(cfg: RunEIFullConfig) -> None:
             ObsLoss(physics, weight=1.0,
                     use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real)),
             EqLoss(physics, transform, weight=float(cfg.eq_weight),
-                   use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real)),
+                   use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real),
+                   eq_use_direct=bool(cfg.eq_use_direct)),
         ]
 
         optimizer = torch.optim.Adam(model.parameters(), lr=float(cfg.learning_rate))

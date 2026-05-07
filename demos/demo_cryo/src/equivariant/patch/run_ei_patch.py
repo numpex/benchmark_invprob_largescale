@@ -58,11 +58,14 @@ class RunEIPatchConfig:
     tilt_min: float = -60.0
     use_spherical_support: bool = True
     wedge_double_size: bool = True
+    wedge_low_support: float = 0.0   # icecream default: no low-freq leakage
+    ref_wedge_support: float = 1.0   # icecream default: full sphere for EqLoss reference
 
     # ── EI loss ─────────────────────────────────────────────────────────────
     eq_weight: float = 2.0            # weight of EqLoss relative to ObsLoss
     use_fourier: bool = False
     view_as_real: bool = True
+    eq_use_direct: bool = False       # icecream eq_use_direct: plain MSE if True (paper default False)
 
     # ── GT evaluation ───────────────────────────────────────────────
     use_icecream_gt: bool = False     # enable PSNR + figure saving vs GT volume
@@ -294,8 +297,8 @@ def run_training(cfg: RunEIPatchConfig) -> None:
             tilt_min=float(cfg.tilt_min),
             crop_size=int(cfg.crop_size),
             use_spherical_support=bool(cfg.use_spherical_support),
-            wedge_double_size=bool(cfg.wedge_double_size),
-            device=str(ctx.device),
+            wedge_double_size=bool(cfg.wedge_double_size),            wedge_low_support=float(cfg.wedge_low_support),
+            ref_wedge_support=float(cfg.ref_wedge_support),            device=str(ctx.device),
         ).to(ctx.device)
 
         # ── Transform ────────────────────────────────────────────────────────
@@ -323,7 +326,8 @@ def run_training(cfg: RunEIPatchConfig) -> None:
             ObsLoss(physics, weight=1.0,
                     use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real)),
             EqLoss(physics, transform, weight=float(cfg.eq_weight),
-                   use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real)),
+                   use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real),
+                   eq_use_direct=bool(cfg.eq_use_direct)),
         ]
 
         optimizer = torch.optim.Adam(model.parameters(), lr=float(cfg.learning_rate))

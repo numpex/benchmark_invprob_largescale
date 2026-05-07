@@ -107,9 +107,6 @@ def _apply_wedge(x: torch.Tensor, wedge: torch.Tensor) -> torch.Tensor:
     shape = x.shape
     x_4d = x.reshape(-1, *shape[-3:])
     out = _ic_get_measurement(x_4d, wedge)
-    # out spatial dims may differ from input when wedge is smaller than input
-    # (e.g. non-cubic volume truncated to cubic wedge size). Restore only the
-    # batch/channel prefix; let spatial dims follow the wedge output naturally.
     return out.reshape(*shape[:-3], *out.shape[-3:])
 
 
@@ -256,11 +253,13 @@ class EqLoss(Loss):
         min_distance: float = 0.5,
         use_fourier: bool = False,
         view_as_real: bool = True,
+        eq_use_direct: bool = False,
     ) -> None:
         super().__init__()
-        self.weight       = weight
-        self.paired       = paired
-        self.use_fourier  = use_fourier
+        self.weight        = weight
+        self.paired        = paired
+        self.use_fourier   = use_fourier
+        self.eq_use_direct = eq_use_direct
         self.view_as_real = view_as_real
         self._physics  = physics
         self._transform = transform
@@ -271,23 +270,13 @@ class EqLoss(Loss):
         """Return indices into ``Rotate3D._KSET`` where the rotated wedge differs
         from the original by ``distance > min_distance``.
 
-        For non-cubic wedges, first filters to shape-preserving rotations only
-        (i.e. rot90 is only applied between axes with equal size).
-
         Mirrors icecream's ``generate_all_cube_symmetries_torch`` filter.
+        Volumes are always cubic so all 40 rotations are shape-preserving.
         """
         wedge = self._physics.mask[:-1, :-1, :-1].float()
-        D, H, W = wedge.shape  # may differ for non-cubic volumes
         norm_w = torch.linalg.norm(wedge)
         valid = []
         for i, (kx, ky, kz, axis) in enumerate(Rotate3D._KSET):
-            # Skip if this rotation swaps axes with different sizes (shape changes)
-            if kx != 0 and D != H:
-                continue
-            if ky != 0 and D != W:
-                continue
-            if kz != 0 and H != W:
-                continue
             w_rot = _rotate_wedge(wedge, kx, ky, kz, axis)
             dist = torch.linalg.norm(w_rot - wedge) / norm_w
             if dist.item() > min_distance:
@@ -358,6 +347,9 @@ class EqLoss(Loss):
         remeasured_inp = _apply_wedge(est_rot, wedge_input)      # A_input(T(x̂))
         remeasured     = model(remeasured_inp)                    # f(A_input(T(x̂)))
 
+        if self.eq_use_direct:
+            # Plain spatial MSE, no Fourier masking (icecream eq_use_direct=True branch)
+            return self._criteria(ref, remeasured)
         return _fourier_loss_batch(ref, remeasured, w_rot_batch, self._criteria, window=window,
                                    use_fourier=self.use_fourier, view_as_real=self.view_as_real)
 
@@ -395,6 +387,9 @@ class EqLoss(Loss):
         est_1_rot_est = model(est_1_rot_inp)
         est_2_rot_est = model(est_2_rot_inp)
 
+        if self.eq_use_direct:
+            # Plain spatial MSE, no Fourier masking (icecream eq_use_direct=True branch)
+            return self._criteria(est_2_ref, est_1_rot_est) + self._criteria(est_1_ref, est_2_rot_est)
         return (
             _fourier_loss_batch(est_2_ref, est_1_rot_est, wedge_rot_batch, self._criteria, window=window,
                                 use_fourier=self.use_fourier, view_as_real=self.view_as_real)
