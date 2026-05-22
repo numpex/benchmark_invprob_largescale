@@ -108,14 +108,14 @@ def _discover_pairs(input_dir: Path) -> list[tuple[Path, Path]]:
         )
 
     for tomo_dir in tomo_dirs:
-        corrected = list(tomo_dir.glob("*_corrected.mrc"))
-        icecream = list(tomo_dir.glob("*icecream.mrc"))
+        corrected = list(tomo_dir.glob("*IsoNet*.mrc"))
+        icecream = list(tomo_dir.glob("*Icecream*.mrc"))
 
         if not corrected:
-            print(f"[data] WARNING: no *_corrected.mrc found in {tomo_dir}, skipping.")
+            print(f"[data] WARNING: no *IsoNet*.mrc found in {tomo_dir}, skipping.")
             continue
         if not icecream:
-            print(f"[data] WARNING: no *icecream.mrc found in {tomo_dir}, skipping.")
+            print(f"[data] WARNING: no *Icecream*.mrc found in {tomo_dir}, skipping.")
             continue
 
         # Take the first match if multiple (shouldn't happen in practice).

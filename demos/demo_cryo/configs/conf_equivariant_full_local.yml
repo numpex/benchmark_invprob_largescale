@@ -9,6 +9,8 @@ general:
   max_val_vols: 1
   seed: 0
   target_shape: [32, 64, 64]
+  #target_shape: [64, 128, 128]
+
 
 training:
   num_epochs: 3
@@ -16,7 +18,7 @@ training:
   # Exponential decay: lr * gamma^epoch, floored at lr_min.
   # gamma = 10^{-1/10} ≈ 0.7943 → 1e-4 drops to 1e-5 at epoch 10.
   scheduler_gamma: 0.7943
-  scheduler_lr_min: 5.0e-6
+  scheduler_lr_min: 1.0e-6
   grad_clip: 1.0
   ckp_interval: 10
   eval_interval: 1
@@ -58,8 +60,12 @@ equivariant:
   # Same for the equivariance reference wedge.
   # 1.0 = full unit sphere kept (icecream default) — EqLoss reference sees complete spectrum.
   ref_wedge_support: 1.0
-  # Set to true to compute PSNR vs *icecream*.mrc files found alongside EVN/ODD.
-  use_icecream_gt: true
+  # Set to true to compute FSC(f(EVN), f(ODD)) at each eval_interval epoch.
+  eval_fsc: true
+  fsc_threshold: 0.143   # gold-standard FSC resolution criterion
+  # Fallback pixel size (Å/px) used when the MRC header voxel_size == 0.
+  # Leave as null to fall back to 1.0 (resolution reported in shells, not Å).
+  pixel_size_angstrom: 7.84
 
 slurm:
   job_name: demo-cryo-ei-full

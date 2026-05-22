@@ -1,8 +1,8 @@
 """run_ei_full.py — Self-supervised EI training on **full volumes** with distributed tiling.
 
-Method 3 (Equivariant, full-volume variant):
+Equivariant, full-volume variant:
   - The network is wrapped with ``deepinv.distributed.distribute`` for tiled
-    sliding-window inference, exactly as in the supervised Method 1.
+    sliding-window inference, exactly as in the supervised Method.
   - Forward physics: MissingWedge at native volume resolution (wedge_double_size=False).
   - Loss: ObsLoss (cross half-set, Fourier domain) +
           EqLoss  (equivariance under rotated wedge, Fourier domain).
@@ -14,143 +14,20 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
 import deepinv as dinv
 import mrcfile
 import numpy as np
 import torch
 from deepinv.distributed import DistributedContext, distribute
 
-from .dataset import CryoEIFullDataset, EIFullDataConfig, build_ei_full_dataloaders
+from equivariant.dataset_full import EIFullDataConfig, build_ei_full_dataloaders
 from equivariant.physics import MissingWedge
 from equivariant.transform import Rotate3D
 from equivariant.losses import ObsLoss, EqLoss
-from deepinv.loss.metric import PSNR
-import torch.nn as nn
-from toolscryo.utils import CsvTrainer
-from toolscryo.utils import dump_config_json, ensure_dir, ExponentialLRWithFloor, seed_everything
+from equivariant.utils import fsc_shell, save_fsc_figure, save_resolution_histogram, save_slice_figure, GpuFSC
+from toolscryo.trainer import BaseTrainer, ExponentialLRWithFloor
+from toolscryo.utils import dump_config_json, ensure_dir, seed_everything
 from toolscryo.plot_metrics import plot_metrics
-
-
-# ---------------------------------------------------------------------------
-# Full-volume GT evaluator
-# ---------------------------------------------------------------------------
-
-class FullVolEvaluator:
-    """Load full val volumes from disk, run model, compute PSNR vs icecream GT.
-    """
-
-    def __init__(
-        self,
-        val_evn_paths: list[Path],
-        val_icecream_paths: list[Path | None],
-        device: str | torch.device = "cpu",
-        target_shape: tuple[int, int, int] | None = None,
-        seed: int = 42,
-    ) -> None:
-        self.val_evn_paths      = val_evn_paths
-        self.val_icecream_paths = val_icecream_paths
-        self.device             = torch.device(device)
-        self.target_shape       = target_shape
-        self.seed               = seed
-        self._images_dir: Path | None = None
-
-    def __call__(self, epoch: int, model: nn.Module) -> float | None:
-        import torch.nn.functional as F
-
-        seed_everything(self.seed)
-        model.eval()
-        psnr_all: list[float] = []
-
-        with torch.no_grad():
-            for vol_idx, (evn_path, ice_path) in enumerate(
-                zip(self.val_evn_paths, self.val_icecream_paths)
-            ):
-                if ice_path is None:
-                    continue
-
-                def _load(path: Path) -> torch.Tensor:
-                    # Mirrors _load_and_prepare exactly: resample → centre-crop → normalise
-                    vol_np = CryoEIFullDataset._load_mrc(path)       # (Y,X,Z) raw float
-                    vol = torch.from_numpy(vol_np)                   # (D,H,W)
-                    if self.target_shape is not None:
-                        vol = F.interpolate(
-                            vol.unsqueeze(0).unsqueeze(0),
-                            size=self.target_shape,
-                            mode="trilinear",
-                            align_corners=False,
-                        ).squeeze(0).squeeze(0)
-                    # Centre-crop to cube
-                    D, H, W = vol.shape
-                    S = min(D, H, W)
-                    d0, h0, w0 = (D - S) // 2, (H - S) // 2, (W - S) // 2
-                    vol = vol[d0:d0 + S, h0:h0 + S, w0:w0 + S]
-                    # Normalise after crop
-                    vol = (vol - vol.mean()) / (vol.std() + 1e-8)
-                    return vol.unsqueeze(0).unsqueeze(0)             # (1,1,S,S,S)
-
-                x  = _load(evn_path).to(self.device)
-                gt = _load(ice_path).to(self.device)
-                fx = model(x)
-
-                psnr_val   = float(PSNR(max_pixel=None)(fx.cpu(), gt.cpu()))
-                psnr_input = float(PSNR(max_pixel=None)(x.cpu(),   gt.cpu()))
-                psnr_all.append(psnr_val)
-
-                if self._images_dir is not None:
-                    self._save_figure_full(epoch, vol_idx, x.cpu(), fx.cpu(), gt.cpu(), psnr_val, psnr_input)
-
-        return float(np.mean(psnr_all)) if psnr_all else None
-
-    def _save_figure_full(
-        self,
-        epoch: int,
-        vol_idx: int,
-        x: torch.Tensor,
-        fx: torch.Tensor,
-        gt: torch.Tensor,
-        psnr: float,
-        psnr_input: float = float("nan"),
-    ) -> None:
-        assert self._images_dir is not None
-
-        def _slices(t: torch.Tensor):
-            """Return mid-slice along D, H, W axes as numpy arrays."""
-            v = t[0, 0].float()   # (D, H, W)
-            D, H, W = v.shape
-            return [
-                v[D // 2, :, :].numpy(),   # axial   (H×W)
-                v[:, H // 2, :].numpy(),   # coronal (D×W)
-                v[:, :, W // 2].numpy(),   # sagittal(D×H)
-            ]
-
-        axis_labels = ["axial (D)", "coronal (H)", "sagittal (W)"]
-        col_titles  = ["Icecream", f"Input corrected ({psnr_input:.2f} dB)", f"Pred f(x) ({psnr:.2f} dB)"]
-        vols        = [gt, x, fx]
-
-        fig, axes = plt.subplots(3, 3, figsize=(12, 12))
-        for row, (label, *slices_per_vol) in enumerate(
-            zip(axis_labels, *[_slices(v) for v in vols])
-        ):
-            vmin = float(slices_per_vol[0].min())
-            vmax = float(slices_per_vol[0].max())
-            for col, (ax, img) in enumerate(zip(axes[row], slices_per_vol)):
-                ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax)
-                ax.axis("off")
-                if row == 0:
-                    ax.set_title(col_titles[col])
-                if col == 0:
-                    ax.set_ylabel(label)
-
-        fig.suptitle(f"Epoch {epoch} | Vol {vol_idx} | mid-slices per axis")
-        fig.tight_layout()
-        fname = Path(self._images_dir) / f"epoch{epoch:04d}" / f"vol{vol_idx:02d}.png"
-        fname.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(fname, dpi=120)
-        plt.close(fig)
 
 
 # ---------------------------------------------------------------------------
@@ -211,44 +88,160 @@ class RunEIFullConfig:
     grad_accumulation_steps: int = 4    # accumulate over N volumes before each optimiser step
 
     # ── Evaluation ──────────────────────────────────────────────────────────
-    use_icecream_gt: bool = False
+    # FSC(f(EVN), f(ODD)) at each eval_interval epoch.
+    eval_fsc: bool = True
+    fsc_threshold: float = 0.143        # gold-standard FSC resolution criterion
+    # Fallback pixel size (Å/px) used when MRC header voxel_size == 0.
+    # If None and header is zero, falls back to 1.0 (resolution in shells, not Å).
+    pixel_size_angstrom: float | None = None
 
 
 # ---------------------------------------------------------------------------
 # Trainer subclass — adds optional GT evaluator PSNR hook
 # ---------------------------------------------------------------------------
 
-class EIFullTrainer(CsvTrainer):
-    """CsvTrainer that optionally calls ``_gt_evaluator`` after each val pass."""
+class EIFullTrainer(BaseTrainer):
+    """BaseTrainer subclass for self-supervised EI training on full volumes.
 
-    _gt_evaluator: FullVolEvaluator | None = None
+    Overrides the val step to run FSC(f(EVN), f(ODD)) directly inside
+    ``compute_loss`` as deepinv iterates the val loader — avoiding the
+    double-pass that occurred when a separate FullVolEvaluator re-iterated
+    the same loader after the deepinv val loop.
 
-    def _save_val_image(self, *args, **kwargs) -> None:  # type: ignore[override]
-        """Suppressed: EI figures are produced by FullVolEvaluator with the GT."""
+    Attributes set after construction (in ``run_training``):
+      ``_val_pixel_sizes``  list of Å/px per val volume
+      ``_fsc_threshold``    FSC threshold (default 0.143)
+    """
 
-    def compute_loss(self, physics, x, y, train=True, **kwargs):  # type: ignore[override]
-        """During validation, skip model inference and loss computation entirely.
+    _main_metric = "fsc_res_angstrom"
+    _main_metric_higher_is_better = False  # lower resolution value = better
 
-        The only useful val-time work is the GT PSNR computed by ``_gt_evaluator``
-        inside ``log_metrics_mlops``, which fires on the last val batch regardless.
-        Skipping here reduces val cost from ~4 model calls per volume to zero
-        (the evaluator adds exactly 1 call per val volume).
-        """
+
+    def forward_pass(self, x, y, physics, train):
+        """Compute f(ODD) and f(EVN) once; val is handled directly in compute_loss."""
         if not train:
-            # Return (loss, x_net, logs) with dummy values — deepinv step() unpacks 3.
-            # metrics=[] and plot_images=False, so x_net=None is safe.
-            return torch.tensor(0.0, device=y.device), None, {}
-        return super().compute_loss(physics, x, y, train=True, **kwargs)
+            return torch.zeros_like(y), None
+        x_net = self.model_inference(y=y, physics=physics, x=x, train=True)   # f(ODD)
+        y_net = self.model_inference(y=x, physics=physics, x=y, train=True)   # f(EVN)
+        return x_net, y_net
+
+    def compute_loss(self, physics, x, y, train=True, epoch=None, step=False):  # type: ignore[override]
+        if not train:
+            # x = EVN tensor, y = ODD tensor (as yielded by the val DataLoader).
+            # Run FSC(f(EVN), f(ODD)) for this volume and accumulate.
+            # All ranks call the distributed model together → NCCL collectives stay in sync.
+            if epoch != getattr(self, "_val_fsc_epoch", None):
+                self._val_fsc_epoch = epoch
+                self._val_resolutions: list[float] = []
+                self._val_vol_idx = 0
+
+            thr       = float(getattr(self, "_fsc_threshold", 0.143))
+            px_list   = getattr(self, "_val_pixel_sizes", [])
+            vol_idx   = self._val_vol_idx
+            px        = px_list[vol_idx] if vol_idx < len(px_list) else 1.0
+
+            import time
+
+            t0 = time.perf_counter()
+            with torch.no_grad():
+                f_evn_t = self.model(x)
+                f_odd_t = self.model(y)
+            if hasattr(self.device, 'type') and self.device.type == "cuda":
+                torch.cuda.synchronize()
+            t_forward = time.perf_counter() - t0
+
+            if not hasattr(self, "_gpu_fsc"):
+                self._gpu_fsc = GpuFSC(f_evn_t.shape[-1], device=f_evn_t.device)
+
+            t0 = time.perf_counter()
+            fsc_curve = self._gpu_fsc(f_evn_t, f_odd_t)
+            t_fsc = time.perf_counter() - t0
+
+            t0 = time.perf_counter()
+            with torch.no_grad():
+                a_evn_t   = physics.A(x)
+                a_odd_t   = physics.A(y)
+                a_f_evn_t = physics.A(f_evn_t)
+                a_f_odd_t = physics.A(f_odd_t)
+            evn_np  = x.squeeze().cpu().numpy()
+            odd_np  = y.squeeze().cpu().numpy()
+            f_evn   = f_evn_t.squeeze().cpu().numpy()
+            f_odd   = f_odd_t.squeeze().cpu().numpy()
+            a_evn   = a_evn_t.squeeze().cpu().numpy()
+            a_odd   = a_odd_t.squeeze().cpu().numpy()
+            a_f_evn = a_f_evn_t.squeeze().cpu().numpy()
+            a_f_odd = a_f_odd_t.squeeze().cpu().numpy()
+            t_cast = time.perf_counter() - t0
+
+            k         = fsc_shell(fsc_curve, thr)
+            D         = f_evn.shape[0]
+            res       = D * px / max(k, 1)
+            self._val_resolutions.append(res)
+
+            print(
+                f"[val-timing] vol={vol_idx}  forward×2={t_forward:.3f}s  "
+                f"fsc={t_fsc:.3f}s  cpu_cast={t_cast:.3f}s",
+                flush=True,
+            )
+
+            images_dir = getattr(self, "_images_dir", None)
+            if images_dir is not None:
+                t0 = time.perf_counter()
+                save_fsc_figure(images_dir, epoch, f"vol{vol_idx:02d}.png",
+                                fsc_curve, k, res,
+                                f"Epoch {epoch} | Vol {vol_idx}",
+                                thr, vol_size=D, pixel_size=px)
+                t_fsc_fig = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                save_slice_figure(
+                    images_dir, epoch, vol_idx,
+                    evn_np, odd_np, f_evn, f_odd,
+                    labels=["Input EVN", "Input ODD", "f(EVN)", "f(ODD)"],
+                    title=f"Epoch {epoch} | Vol {vol_idx} — raw",
+                    fname=f"vol{vol_idx:02d}_raw.png",
+                )
+                save_slice_figure(
+                    images_dir, epoch, vol_idx,
+                    a_evn, a_odd, a_f_evn, a_f_odd,
+                    labels=["A(EVN)", "A(ODD)", "A(f(EVN))", "A(f(ODD))"],
+                    title=f"Epoch {epoch} | Vol {vol_idx} — physics A(·)",
+                    fname=f"vol{vol_idx:02d}_physics.png",
+                )
+                t_slice_fig = time.perf_counter() - t0
+                print(
+                    f"[val-timing] vol={vol_idx}  save_fsc_fig={t_fsc_fig:.3f}s  save_slice_fig={t_slice_fig:.3f}s",
+                    flush=True,
+                )
+
+            self._val_vol_idx += 1
+            # Return f_evn as x_net so deepinv can log it if needed.
+            return torch.tensor(0.0, device=y.device), f_evn_t.detach(), {}
+
+        return super().compute_loss(physics, x, y, train=True, epoch=epoch, step=step)
 
     def log_metrics_mlops(self, logs: dict, step: int, train: bool = True) -> None:  # type: ignore[override]
-        if not train and self._gt_evaluator is not None:
-            # All ranks call the evaluator together so the distribute'd model
-            # NCCL collectives are properly synchronised across ranks.
-            mean_psnr = self._gt_evaluator(step, self.model)
-            self.model.train()   # restore train mode after eval
-            if mean_psnr is not None and self.verbose:  # rank-0 only print
-                logs["gt_psnr_db"] = mean_psnr
-                print(f"[gt-eval] epoch={step}  mean_psnr={mean_psnr:.2f} dB", flush=True)
+        if not train:
+            resolutions = getattr(self, "_val_resolutions", [])
+            if resolutions:
+                res_arr  = np.array(resolutions)
+                mean_res = float(np.mean(res_arr))
+                q1_res   = float(np.percentile(res_arr, 25))
+                q3_res   = float(np.percentile(res_arr, 75))
+                logs["fsc_res_angstrom"] = mean_res
+                logs["fsc_res_q1"]       = q1_res
+                logs["fsc_res_q3"]       = q3_res
+                images_dir = getattr(self, "_images_dir", None)
+                if images_dir is not None:
+                    save_resolution_histogram(
+                        images_dir, step, resolutions, mean_res, q1_res, q3_res,
+                        threshold_label=str(getattr(self, "_fsc_threshold", 0.143)),
+                    )
+                if self.verbose:
+                    print(
+                        f"[fsc-eval] epoch={step}  "
+                        f"mean={mean_res:.1f} Å  Q1={q1_res:.1f} Å  Q3={q3_res:.1f} Å  (lower=better)",
+                        flush=True,
+                    )
         super().log_metrics_mlops(logs, step, train=train)
 
 
@@ -256,19 +249,43 @@ class EIFullTrainer(CsvTrainer):
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _read_val_header_info(
+    val_loader,
+    fallback_pixel_size: float | None = None,
+) -> tuple[list[float], int]:
+    """Read pixel sizes and count paired volumes from val dataset MRC headers.
+
+    Returns ``(val_pixel_sizes, n_paired_val)`` by opening only the header of
+    each EVN file — no voxel data loaded.
+
+    When the MRC header reports ``voxel_size == 0``, uses *fallback_pixel_size*
+    (from config ``pixel_size_angstrom``) if provided, else 1.0 (resolution
+    will be in shell units rather than Å).
+    """
+    val_ds = val_loader.dataset
+    val_pixel_sizes: list[float] = []
+    n_paired_val = 0
+    for evn_p, odd_p in zip(val_ds.evn_paths, val_ds.odd_paths):
+        with mrcfile.open(str(evn_p), permissive=True, mode="r") as mrc:
+            px = float(mrc.voxel_size.x)
+        if px <= 0.0:
+            px = fallback_pixel_size if fallback_pixel_size is not None else 1.0
+        val_pixel_sizes.append(px)
+        if odd_p is not None:
+            n_paired_val += 1
+    return val_pixel_sizes, n_paired_val
+
+
 def _resolve_vol_size(data_bundle, cfg: RunEIFullConfig) -> int:
     """Return the spatial side length to use for MissingWedge physics.
 
-    Loads the first EVN volume and returns its minimum spatial dimension.
+    Reads only the MRC header (nx, ny, nz) — no volume data loaded.
     """
-    first_path = data_bundle.train_paths[0]
-    vol = np.array(
-        mrcfile.open(str(first_path), permissive=True).data,
-        dtype=np.float32,
-    )
-    # MRC is (Z, Y, X); after moveaxis we get (Y, X, Z) = (D, H, W).
-    # Use the minimum dimension as the cube side (conservative choice).
-    vol_size = int(min(vol.shape))
+    first_path = data_bundle.train_loader.dataset.evn_paths[0]
+    with mrcfile.open(str(first_path), permissive=True, mode="r") as mrc:
+        nx, ny, nz = int(mrc.header.nx), int(mrc.header.ny), int(mrc.header.nz)
+    # MRC stores (nz=Z, ny=Y, nx=X); min gives the smallest spatial dimension.
+    vol_size = min(nx, ny, nz)
     print(f"[ei-full] auto vol_size={vol_size}  (from {first_path.name})", flush=True)
     return vol_size
 
@@ -293,7 +310,6 @@ def run_training(cfg: RunEIFullConfig) -> None:
         max_val_vols=int(cfg.max_val_vols),
         seed=int(cfg.seed),
         target_shape=cfg.target_shape,
-        use_icecream_gt=cfg.use_icecream_gt,
     )
 
     with DistributedContext(seed=int(cfg.seed), seed_offset=False, cleanup=True) as ctx:
@@ -406,30 +422,28 @@ def run_training(cfg: RunEIFullConfig) -> None:
         trainer._grad_accum_steps = max(1, int(cfg.grad_accumulation_steps))
         trainer.ckp_interval      = int(cfg.ckp_interval)
 
-        # ── GT evaluator (optional) ──────────────────────────────────────────
-        # IMPORTANT: _gt_evaluator must be set on ALL ranks, not just rank 0.
-        # FullVolEvaluator calls the distribute'd model which requires all ranks
-        # to participate in the NCCL collective together.  Setting it only on
-        # rank 0 causes a deadlock: rank 0 calls model(x) in the evaluator while
-        # ranks 1-3 have already moved to the next epoch and call model(x) there.
-        if cfg.use_icecream_gt and any(
-            p is not None for p in data_bundle.val_icecream_paths
-        ):
-            evaluator = FullVolEvaluator(
-                val_evn_paths      = data_bundle.val_paths,
-                val_icecream_paths = data_bundle.val_icecream_paths,
-                device             = ctx.device,
-                target_shape       = cfg.target_shape,
-                seed               = int(cfg.seed),
-            )
-            # Only rank 0 saves figures; all ranks run inference.
-            evaluator._images_dir = images_dir  # None on non-rank-0
-            trainer._gt_evaluator = evaluator
+        # ── FSC evaluation setup ──────────────────────────────────────────────
+        # pixel sizes and threshold are set on ALL ranks so the distributed
+        # model's NCCL collectives stay synchronised across ranks during val.
+        val_pixel_sizes, n_paired_val = _read_val_header_info(
+            data_bundle.val_loader,
+            fallback_pixel_size=cfg.pixel_size_angstrom,
+        )
+        if rank == 0:
+            print(f"[fsc-eval] val pixel sizes (Å/px): {[f'{v:.2f}' for v in val_pixel_sizes]}", flush=True)
+
+        if cfg.eval_fsc and n_paired_val > 0:
+            trainer._val_pixel_sizes = val_pixel_sizes
+            trainer._fsc_threshold   = float(cfg.fsc_threshold)
             if rank == 0:
-                n_ice = sum(p is not None for p in data_bundle.val_icecream_paths)
-                print(f"[gt-eval] enabled for {n_ice} val volumes", flush=True)
+                print(f"[fsc-eval] enabled for {n_paired_val} paired val volumes  thr={cfg.fsc_threshold}", flush=True)
         else:
-            trainer._gt_evaluator = None
+            trainer._val_pixel_sizes = []
+            trainer._fsc_threshold   = float(cfg.fsc_threshold)
+            if rank == 0 and not cfg.eval_fsc:
+                print("[fsc-eval] disabled (eval_fsc=False)", flush=True)
+            elif rank == 0:
+                print("[fsc-eval] disabled — no paired ODD val volumes found", flush=True)
 
         trainer.train()
 

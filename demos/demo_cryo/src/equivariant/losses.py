@@ -4,8 +4,6 @@ Implements the two loss terms from icecream's EquivariantTrainer.compute_loss:
 
 1. ``ObsLoss`` — Cross half-set data-fidelity in the Fourier domain
        L_obs = fourier_loss(EVN, f(ODD), W) + fourier_loss(ODD, f(EVN), W)
-   If only one half-set is available (paired=False), reduces to:
-       L_obs = fourier_loss(y, f(y), W)   (self-consistent, single half)
 
 2. ``EqLoss`` — Equivariance under random cube-symmetry rotations,
    measured in the Fourier domain under the *rotated* wedge, matching icecream's
@@ -120,10 +118,11 @@ def _rotate_wedge(wedge: torch.Tensor, kx: int, ky: int, kz: int, axis: int) -> 
     :param wedge: (M, M, M)
     :return: (M, M, M) rotated wedge
     """
-    w = wedge.unsqueeze(0)          # (1, M, M, M)
-    w = torch.rot90(w, k=kx, dims=(1, 2))
-    w = torch.rot90(w, k=ky, dims=(1, 3))
-    w = torch.rot90(w, k=kz, dims=(2, 3))
+    w = wedge.unsqueeze(0)          # (1, M, M, M)  dim1=D, dim2=H, dim3=W
+    # icecream: kx→(1,2)=(H,W), ky→(0,2)=(D,W), kz→(0,1)=(D,H)
+    w = torch.rot90(w, k=kx, dims=(2, 3))  # (H, W)
+    w = torch.rot90(w, k=ky, dims=(1, 3))  # (D, W)
+    w = torch.rot90(w, k=kz, dims=(1, 2))  # (D, H)
     if axis != -1:
         w = torch.flip(w, [axis + 1])
     return w.squeeze(0)             # (M, M, M)
@@ -136,30 +135,19 @@ def _rotate_wedge(wedge: torch.Tensor, kx: int, ky: int, kz: int, axis: int) -> 
 class ObsLoss(Loss):
     """Cross half-set data-fidelity loss in the Fourier domain.
 
-    **Paired mode** (EVN + ODD available, ``x ≠ y``):
         L = fourier_loss(ODD, A(f(EVN)), W) + fourier_loss(EVN, A(f(ODD)), W)
-
-    **Single half-set mode** (``x == y`` or only EVN):
-        L = fourier_loss(y, A(f(y)), W)
-
-    The wedge mask ``W`` used here is the *input* wedge (``wedge_input``,
-    cropped to ``crop_size³``, same as icecream's ``wedge_input_set[idx]``).
 
     :param MissingWedge physics: the MissingWedge physics object (provides ``mask``).
     :param float weight: loss weight (default 1.0).
-    :param bool paired: if True always use cross half-set formula;
-        if False always use single half-set.  Default ``None`` = auto-detect
-        by checking ``torch.equal(x, y)`` each forward call.
     """
 
-    def __init__(self, physics, weight: float = 1.0, paired: bool | None = None,
+    def __init__(self, physics, weight: float = 1.0,
                  use_fourier: bool = False, view_as_real: bool = True) -> None:
         super().__init__()
         self.weight      = weight
-        self.paired      = paired
         self.use_fourier = use_fourier
         self.view_as_real = view_as_real
-        self._physics = physics          # kept as plain ref, not nn.Module child
+        self._physics = physics
         self._criteria = nn.MSELoss(reduction="mean")
 
     @property
@@ -176,37 +164,25 @@ class ObsLoss(Loss):
         self,
         x: torch.Tensor,        # EVN patch  (B, 1, D, H, W)
         y: torch.Tensor,        # ODD patch  (same shape)
-        x_net: torch.Tensor,    # f(x) = f(EVN)
-        physics,                # unused — wedge comes from self._physics
-        model,                  
+        x_net: torch.Tensor,    # f(y) = f(ODD),  pre-computed by trainer
+        physics,
+        model,
         **kwargs,
     ) -> torch.Tensor:
-        wedge = self._wedge_input.to(x.device)
-
-        # Determine whether we have a genuine paired batch
-        is_paired = (self.paired is True) or (
-            self.paired is None and not torch.equal(x, y)
-        )
-
+        wedge  = self._wedge_input.to(x.device)
         window = self._window.to(x.device)
 
-        if is_paired:
-            # f(EVN) is already computed as x_net;  compute f(ODD) separately
-            est_evn = x_net                          # f(EVN),  (B,1,D,H,W)
-            est_odd = model(y)                       # f(ODD)
+        est_odd = x_net                                    # f(ODD)
+        est_evn = kwargs.get("y_net")                       # f(EVN), pre-computed by trainer
+        if est_evn is None:
+            est_evn = model(x)
 
-            # Pass estimates raw — fourier_loss applies wedge internally (matches icecream)
-            loss = (
-                _fourier_loss(y, est_evn, wedge, self._criteria, window=window,
-                              use_fourier=self.use_fourier, view_as_real=self.view_as_real)
-                + _fourier_loss(x, est_odd, wedge, self._criteria, window=window,
-                                use_fourier=self.use_fourier, view_as_real=self.view_as_real)
-            )
-        else:
-            # Single half-set: y == x (EVN only)
-            loss = _fourier_loss(y, x_net, wedge, self._criteria, window=window,
-                                 use_fourier=self.use_fourier, view_as_real=self.view_as_real)
-
+        loss = (
+            _fourier_loss(y, est_evn, wedge, self._criteria, window=window,
+                          use_fourier=self.use_fourier, view_as_real=self.view_as_real)
+            + _fourier_loss(x, est_odd, wedge, self._criteria, window=window,
+                            use_fourier=self.use_fourier, view_as_real=self.view_as_real)
+        )
         return self.weight * loss
 
 
@@ -219,29 +195,13 @@ class EqLoss(Loss):
 
     For a randomly sampled rotation T (from the 40-element cubic group):
 
-        est_rot      = T(f(y))           # rotate the network estimate
-        wedge_rot    = T(W_full)         # rotate the full-size wedge mask
-        ref          = A_ref(est_rot)    # apply crop_size wedge to rotated estimate
-        remeasured   = f(A_input(est_rot))  # re-denoise the re-measured rotated estimate
-
-    Loss:
-        L_eq = fourier_loss_batch(ref, remeasured, wedge_rot)
-
-    **Paired mode**: both EVN and ODD estimates are rotated and the loss is
-    summed symmetrically.  **Single mode**: only ``x_net = f(y)`` is used.
-
-    ``W_full``   = physics.mask at full mask_size (the double-size mask)
-    ``A_ref``    = apply crop_size wedge  (``wedge_ref``)
-    ``A_input``  = apply crop_size wedge  (``wedge_input``)
-
-    Note: icecream uses the *same* crop_size mask for both ``wedge_ref`` and
-    ``wedge_input`` in the equivariance branch (they differ only in whether
-    spherical support is used; here we keep them identical for simplicity).
+        est_1_rot, est_2_rot = T(f(EVN)), T(f(ODD))
+        L_eq = fourier_loss_batch(est_2_ref, f(A(est_1_rot)), wedge_rot)
+             + fourier_loss_batch(est_1_ref, f(A(est_2_rot)), wedge_rot)
 
     :param MissingWedge physics: provides mask buffers.
     :param Rotate3D transform: the 3D rotation transform (for sampling k_idx).
     :param float weight: loss weight (default 2.0).
-    :param bool paired: same semantics as ObsLoss.
     """
 
     def __init__(
@@ -249,7 +209,6 @@ class EqLoss(Loss):
         physics,
         transform: Rotate3D,
         weight: float = 2.0,
-        paired: bool | None = None,
         min_distance: float = 0.5,
         use_fourier: bool = False,
         view_as_real: bool = True,
@@ -257,7 +216,6 @@ class EqLoss(Loss):
     ) -> None:
         super().__init__()
         self.weight        = weight
-        self.paired        = paired
         self.use_fourier   = use_fourier
         self.eq_use_direct = eq_use_direct
         self.view_as_real = view_as_real
@@ -325,34 +283,6 @@ class EqLoss(Loss):
             w_batch.append(w_rot)
         return torch.stack(w_batch, dim=0)
 
-    def _one_sided_eq_loss(
-        self,
-        est: torch.Tensor,        # (B, 1, D, H, W)  network output
-        model: nn.Module,
-        wedge_full: torch.Tensor,
-        wedge_ref: torch.Tensor,
-        wedge_input: torch.Tensor,
-        window: torch.Tensor,
-        k_indices: torch.Tensor,
-    ) -> torch.Tensor:
-        """Compute single-branch equivariance term with per-sample rotations.
-
-        This is used for EVN-only fallback where x==y.
-        """
-        est_rot = self._rotate_batch_per_sample(est, k_indices)
-        w_rot_batch = self._rotate_wedge_batch(wedge_full, k_indices)
-
-        ref = _apply_wedge(est_rot, wedge_ref)                   # A_ref(T(x̂))
-
-        remeasured_inp = _apply_wedge(est_rot, wedge_input)      # A_input(T(x̂))
-        remeasured     = model(remeasured_inp)                    # f(A_input(T(x̂)))
-
-        if self.eq_use_direct:
-            # Plain spatial MSE, no Fourier masking (icecream eq_use_direct=True branch)
-            return self._criteria(ref, remeasured)
-        return _fourier_loss_batch(ref, remeasured, w_rot_batch, self._criteria, window=window,
-                                   use_fourier=self.use_fourier, view_as_real=self.view_as_real)
-
     def _paired_eq_loss(
         self,
         est_1: torch.Tensor,
@@ -400,8 +330,8 @@ class EqLoss(Loss):
     def forward(
         self,
         x: torch.Tensor,        # EVN patch
-        y: torch.Tensor,        # ODD patch (== x if single half-set)
-        x_net: torch.Tensor,    # f(x) = f(EVN)
+        y: torch.Tensor,        # ODD patch
+        x_net: torch.Tensor,    # f(y) = f(ODD), pre-computed by trainer
         physics,
         model: nn.Module,
         **kwargs,
@@ -411,38 +341,18 @@ class EqLoss(Loss):
         wedge_input = self._wedge_input.to(x.device)
         window      = self._window.to(x.device)
 
-        # Sample one valid rotation index per sample (icecream batch_rot_* behavior).
         pool = self._valid_k_sets
         bsz = x.shape[0]
         rand_idx = torch.randint(len(pool), (bsz,), device=x.device)
         k_indices = torch.tensor([pool[int(i.item())] for i in rand_idx], device=x.device)
 
-        is_paired = (self.paired is True) or (
-            self.paired is None and not torch.equal(x, y)
+        est_odd = x_net                          # f(ODD), pre-computed
+        est_evn = kwargs.get("y_net")             # f(EVN), pre-computed by trainer
+        if est_evn is None:
+            est_evn = model(x)
+
+        loss = self._paired_eq_loss(
+            est_evn, est_odd, model,
+            wedge_full, wedge_ref, wedge_input, window, k_indices,
         )
-
-        if is_paired:
-            est_odd = model(y)   # f(ODD)  — needed for second symmetric term
-            loss = self._paired_eq_loss(
-                x_net,
-                est_odd,
-                model,
-                wedge_full,
-                wedge_ref,
-                wedge_input,
-                window,
-                k_indices,
-            )
-        else:
-            # EVN-only fallback: keep training functional without paired half-set.
-            loss = self._one_sided_eq_loss(
-                x_net,
-                model,
-                wedge_full,
-                wedge_ref,
-                wedge_input,
-                window,
-                k_indices,
-            )
-
         return self.weight * loss

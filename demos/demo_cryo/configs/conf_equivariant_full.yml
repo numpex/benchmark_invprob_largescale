@@ -5,24 +5,24 @@ general:
   output_root: ./runs
   run_name: demo-cryo-ei-full
   execution_mode: submitit   # change to 'slurm' to submit via submitit
-  max_train_vols: 16   # null = all non-val volumes
+  max_train_vols: 16 # null = all non-val volumes
   max_val_vols: 8
   seed: 0
   target_shape: null
 
 training:
-  num_epochs: 20
+  num_epochs: 10
   learning_rate: 1.0e-4
   # Exponential decay: lr * gamma^epoch, floored at lr_min.
   # gamma = 10^{-1/10} ≈ 0.7943 → 1e-4 drops to 1e-5 at epoch 10.
   scheduler_gamma: 0.7943
   scheduler_lr_min: 5.0e-6
   grad_clip: 1.0
-  ckp_interval: 10
+  ckp_interval: 5
   eval_interval: 1
   # Accumulate gradients over this many full volumes before each optimiser step.
   # Compensates for DataLoader batch_size=1.
-  grad_accumulation_steps: 4
+  grad_accumulation_steps: 8
 
 data:
   batch_size: 1          # always 1 full volume per item
@@ -34,7 +34,7 @@ data:
 distributed:
   # UNet tile size — must be strictly < target_shape in every dimension.
   patch_size: [128, 128, 128]
-  overlap: [8, 8, 8]
+  overlap: [16, 16, 16]
   # Maximum number of tiles processed simultaneously on the GPU.
   # Reduce to save VRAM; increase to improve throughput.
   max_batch_size: 1
@@ -59,7 +59,12 @@ equivariant:
   # 1.0 = full unit sphere kept (icecream default) — EqLoss reference sees complete spectrum.
   ref_wedge_support: 1.0
   # Set to true to compute PSNR vs *icecream*.mrc files found alongside EVN/ODD.
-  use_icecream_gt: true
+  # Set to true to compute FSC(f(EVN), f(ODD)) at each eval_interval epoch.
+  eval_fsc: true
+  fsc_threshold: 0.143   # gold-standard FSC resolution criterion
+  # Fallback pixel size (Å/px) used when the MRC header voxel_size == 0.
+  # Leave as null to fall back to 1.0 (resolution reported in shells, not Å).
+  pixel_size_angstrom: 7.84
 
 slurm:
   job_name: demo-cryo-ei-full
@@ -68,12 +73,12 @@ slurm:
   ntasks_per_node: 4
   cpus_per_task: 20
   time: "02:00:00"
-  account: "fio@a100"
-  constraint: "a100"
-  qos: "qos_gpu_a100-dev"
+  account: "fio@h100"
+  constraint: "h100"
+  qos: "qos_gpu_h100-dev"
   stderr_to_stdout: true
   setup:
     - "module purge"
-    - "module load arch/a100"
+    - "module load arch/h100"
     - "module load pytorch-gpu/py3/2.7.0"
     - "export NCCL_DEBUG=INFO"

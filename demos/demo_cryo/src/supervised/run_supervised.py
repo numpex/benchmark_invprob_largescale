@@ -3,21 +3,92 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import deepinv as dinv
 import torch
 from deepinv.distributed import DistributedContext, distribute
 from deepinv.loss import SupLoss
 from deepinv.loss.metric import PSNR
 
-from .dataloader import CryoDataConfig, build_cryo_dataloaders
-from toolscryo.plot_metrics import plot_metrics
 from toolscryo.utils import (
-    CsvTrainer,
     dump_config_json,
     ensure_dir,
-    ExponentialLRWithFloor,
     seed_everything,
 )
+
+from .dataloader import CryoDataConfig, build_cryo_dataloaders
+from toolscryo.plot_metrics import plot_metrics
+from toolscryo.trainer import BaseTrainer, ExponentialLRWithFloor
+
+
+class SupervisedTrainer(BaseTrainer):
+    """BaseTrainer + mid-slice PNG saving during val."""
+
+    _main_metric = "PSNR"
+    _main_metric_higher_is_better = True
+
+    def compute_metrics(self, x, x_net, y, physics, logs, train=True, epoch=None):  # type: ignore[override]
+        x_net, logs = super().compute_metrics(x, x_net, y, physics, logs, train=train, epoch=epoch)
+        if not train and x_net is not None:
+            self._save_val_image(epoch, x, y, x_net)
+        return x_net, logs
+
+    def _save_val_image(self, epoch, x, y, x_net) -> None:
+        if not self.verbose:
+            return
+        images_dir = getattr(self, "_images_dir", None)
+        if images_dir is None:
+            return
+
+        if epoch != getattr(self, "_plot_epoch", None):
+            self._plot_epoch = epoch
+            self._plot_img_idx = 0
+        img_idx = self._plot_img_idx
+        self._plot_img_idx += 1
+
+        if img_idx == 0 and epoch == 0:
+            print(
+                f"[data] x shape={tuple(x.shape)}  y shape={tuple(y.shape)}  x_net shape={tuple(x_net.shape)}",
+                flush=True,
+            )
+
+        def _slices(t: torch.Tensor):
+            v = t[0, 0].detach().cpu().float()
+            D, H, W = v.shape
+            return [v[D // 2, :, :].numpy(), v[:, H // 2, :].numpy(), v[:, :, W // 2].numpy()]
+
+        _gt_t   = x[0:1].detach().cpu().float()
+        _pred_t = x_net[0:1].detach().cpu().float()
+        _meas_t = y[0:1].detach().cpu().float()
+        psnr_val  = float(PSNR(max_pixel=None)(_pred_t, _gt_t))
+        psnr_meas = float(PSNR(max_pixel=None)(_meas_t, _gt_t))
+
+        axis_labels = ["axial (D)", "coronal (H)", "sagittal (W)"]
+        col_titles  = ["GT", f"Input ({psnr_meas:.2f} dB)", f"Pred ({psnr_val:.2f} dB)"]
+        vols        = [x, y, x_net]
+
+        fig, axes = plt.subplots(3, 3, figsize=(12, 12))
+        for row, (label, *row_slices) in enumerate(
+            zip(axis_labels, *[_slices(v) for v in vols])
+        ):
+            vmin = float(row_slices[0].min())
+            vmax = float(row_slices[0].max())
+            for col, (ax, img) in enumerate(zip(axes[row], row_slices)):
+                ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax)
+                ax.axis("off")
+                if row == 0:
+                    ax.set_title(col_titles[col])
+                if col == 0:
+                    ax.set_ylabel(label)
+
+        fig.suptitle(f"Eval epoch {epoch + 1}  —  vol {img_idx:02d}  —  mid-slices per axis")
+        fig.tight_layout()
+        out = Path(images_dir) / f"epoch{epoch + 1:04d}" / f"vol{img_idx:02d}.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out, dpi=120)
+        plt.close(fig)
 
 
 @dataclass
@@ -57,9 +128,6 @@ class RunConfig:
     grad_accumulation_steps: int = (
         1  # accumulate gradients over N batches before stepping
     )
-
-
-# CsvTrainer lives in toolscryo.utils — imported above for backwards compatibility.
 
 
 def run_training(cfg: RunConfig) -> None:
@@ -119,7 +187,7 @@ def run_training(cfg: RunConfig) -> None:
         )
         accum = max(1, int(cfg.grad_accumulation_steps))
 
-        trainer = CsvTrainer(
+        trainer = SupervisedTrainer(
             model=model,
             physics=physics,
             optimizer=optimizer,

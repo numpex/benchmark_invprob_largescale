@@ -57,10 +57,11 @@ class Rotate3D(T.Transform):
         """
         kx, ky, kz, axis = self._KSET[k_idx]
 
-        # rot90 on 5-D tensor: dims offset by 2 (batch + channel)
-        out = torch.rot90(x, k=kx, dims=(2, 3))
-        out = torch.rot90(out, k=ky, dims=(2, 4))
-        out = torch.rot90(out, k=kz, dims=(3, 4))
+        # rot90 on 5-D tensor (B,C,D,H,W): 2=D, 3=H, 4=W
+        # icecream on 3-D (D,H,W): kx→(1,2)=(H,W), ky→(0,2)=(D,W), kz→(0,1)=(D,H)
+        out = torch.rot90(x,   k=kx, dims=(3, 4))  # (H, W)
+        out = torch.rot90(out, k=ky, dims=(2, 4))  # (D, W)
+        out = torch.rot90(out, k=kz, dims=(2, 3))  # (D, H)
 
         if axis != -1:
             out = torch.flip(out, [axis + 2])  # +2 to skip B, C dims

@@ -18,7 +18,6 @@ import datetime as dt
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 # Allow `python main.py` from repo root without editable install.
 ROOT = Path(__file__).resolve().parent
@@ -26,10 +25,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import yaml  # noqa: E402
 import submitit  # noqa: E402
 
-if TYPE_CHECKING:
-    pass
+from supervised.run_supervised import RunConfig  # noqa: E402
+from supervised.run_supervised import run_training as run_training_supervised  # noqa: E402
+from equivariant.run_ei_full import RunEIFullConfig  # noqa: E402
+from equivariant.run_ei_full import run_training as run_training_ei_full  # noqa: E402
+
 
 
 def _print_config(cfg, header: str = "RunConfig") -> None:
@@ -62,12 +65,8 @@ class CryoTrainingJob:
             from supervised.run_supervised import RunConfig, run_training
             cfg = RunConfig(**self.cfg_dict)
             cfg.output_dir = str(Path(cfg.output_dir) / f"slurm-{env.job_id}")
-        elif self.method == "equivariant_patch":
-            from equivariant.patch.run_ei_patch import RunEIPatchConfig, run_training
-            cfg = RunEIPatchConfig(**self.cfg_dict)
-            cfg.output_dir = str(Path(cfg.output_dir) / f"slurm-{env.job_id}")
         elif self.method == "equivariant_full":
-            from equivariant.full.run_ei_full import RunEIFullConfig, run_training
+            from equivariant.run_ei_full import RunEIFullConfig, run_training
             cfg = RunEIFullConfig(**self.cfg_dict)
             cfg.output_dir = str(Path(cfg.output_dir) / f"slurm-{env.job_id}")
         else:
@@ -109,8 +108,6 @@ def _require_section(conf: dict, name: str) -> dict:
 
 
 def load_config(path: str | Path) -> dict:
-    import yaml
-
     conf_path = Path(path)
     if not conf_path.exists():
         raise FileNotFoundError(f"Config file not found: {conf_path}")
@@ -152,17 +149,13 @@ def build_run_config(conf: dict):
     method = str(conf.get("method", "supervised")).lower()
     if method == "supervised":
         return "supervised", _build_supervised_config(conf)
-    elif method == "equivariant_patch":
-        return "equivariant_patch", _build_equivariant_patch_config(conf)
     elif method == "equivariant_full":
         return "equivariant_full", _build_equivariant_full_config(conf)
     else:
-        raise ValueError(f"Unknown method '{method}'. Supported: supervised, equivariant_patch, equivariant_full.")
+        raise ValueError(f"Unknown method '{method}'. Supported: supervised, equivariant_full.")
 
 
 def _build_supervised_config(conf: dict):
-    from supervised.run_supervised import RunConfig
-
     general = _require_section(conf, "general")
     training = _require_section(conf, "training")
     distributed = _require_section(conf, "distributed")
@@ -217,58 +210,7 @@ def _build_supervised_config(conf: dict):
     )
 
 
-def _build_equivariant_patch_config(conf: dict):
-    from equivariant.patch.run_ei_patch import RunEIPatchConfig
-
-    general    = _require_section(conf, "general")
-    training   = _require_section(conf, "training")
-    patch      = _require_section(conf, "patch")
-    equivariant = _require_section(conf, "equivariant")
-    slurm      = _require_section(conf, "slurm")
-
-    default = RunEIPatchConfig()
-
-    legacy_n_crops = patch.get("n_crops_per_vol", default.n_crops_per_vol)
-    legacy_n_crops = int(legacy_n_crops) if legacy_n_crops is not None else None
-
-    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_name = str(general.get("run_name", slurm.get("job_name", "demo-cryo-ei-patch")))
-    output_root = Path(general.get("output_root", "./runs"))
-    out_dir = output_root / f"{run_name}_{timestamp}"
-
-    return RunEIPatchConfig(
-        output_dir=str(out_dir),
-        input_dir=str(general.get("input_dir", default.input_dir)),
-        max_train_vols=general.get("max_train_vols", default.max_train_vols),
-        max_val_vols=int(general.get("max_val_vols", default.max_val_vols)),
-        seed=int(general.get("seed", default.seed)),
-        normalize_crops=bool(general.get("normalize_crops", default.normalize_crops)),
-        crop_size=int(patch.get("crop_size", default.crop_size)),
-        n_crops_per_vol=legacy_n_crops,
-        batch_size=int(patch.get("batch_size", default.batch_size)),
-        num_workers=int(patch.get("num_workers", default.num_workers)),
-        pin_memory=bool(patch.get("pin_memory", default.pin_memory)),
-        prefetch_factor=int(patch.get("prefetch_factor", default.prefetch_factor)),
-        persistent_workers=bool(patch.get("persistent_workers", default.persistent_workers)),
-        tilt_max=float(equivariant.get("tilt_max", default.tilt_max)),
-        tilt_min=float(equivariant.get("tilt_min", default.tilt_min)),
-        use_spherical_support=bool(equivariant.get("use_spherical_support", default.use_spherical_support)),
-        wedge_double_size=bool(equivariant.get("wedge_double_size", default.wedge_double_size)),
-        eq_weight=float(equivariant.get("eq_weight", default.eq_weight)),
-        num_epochs=int(training.get("num_epochs", default.num_epochs)),
-        learning_rate=float(training.get("learning_rate", default.learning_rate)),
-        scheduler_gamma=float(training.get("scheduler_gamma", default.scheduler_gamma)),
-        scheduler_lr_min=float(training.get("scheduler_lr_min", default.scheduler_lr_min)),
-        grad_clip=training.get("grad_clip", default.grad_clip),
-        ckp_interval=int(training.get("ckp_interval", default.ckp_interval)),
-        eval_interval=int(training.get("eval_interval", default.eval_interval)),
-        use_icecream_gt=bool(equivariant.get("use_icecream_gt", default.use_icecream_gt)),
-    )
-
-
 def _build_equivariant_full_config(conf: dict):
-    from equivariant.full.run_ei_full import RunEIFullConfig
-
     general     = _require_section(conf, "general")
     training    = _require_section(conf, "training")
     data        = conf.get("data", {})
@@ -319,7 +261,13 @@ def _build_equivariant_full_config(conf: dict):
         grad_accumulation_steps=int(
             training.get("grad_accumulation_steps", default.grad_accumulation_steps)
         ),
-        use_icecream_gt=bool(equivariant.get("use_icecream_gt", default.use_icecream_gt)),
+        eval_fsc=bool(equivariant.get("eval_fsc", default.eval_fsc)),
+        fsc_threshold=float(equivariant.get("fsc_threshold", default.fsc_threshold)),
+        pixel_size_angstrom=(
+            float(equivariant["pixel_size_angstrom"])
+            if equivariant.get("pixel_size_angstrom") is not None
+            else None
+        ),
     )
 
 
@@ -377,18 +325,16 @@ def main() -> None:
 
     method, cfg = build_run_config(conf)
 
+    _run_fn = {
+        "supervised": run_training_supervised,
+        "equivariant_full": run_training_ei_full,
+    }
     if execution_mode == "local":
-        if method == "supervised":
-            from supervised.run_supervised import run_training
-        elif method == "equivariant_patch":
-            from equivariant.patch.run_ei_patch import run_training
-        elif method == "equivariant_full":
-            from equivariant.full.run_ei_full import run_training
-        else:
+        run_fn = _run_fn.get(method)
+        if run_fn is None:
             raise ValueError(f"Unknown method: {method}")
-
         _print_config(cfg)
-        run_training(cfg)
+        run_fn(cfg)
         return
 
     submit_job(method, cfg, slurm)
