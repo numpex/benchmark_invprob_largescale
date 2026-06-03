@@ -1,8 +1,8 @@
 """Plot training and validation metrics from a cryo run's CSV files.
 
-Produces one figure with two panels:
-  - Train loss per epoch (log scale)
-  - Val metric per epoch: FSC frequency (equivariant runs) or PSNR (supervised runs)
+Produces:
+  - summary figure (2 panels): train loss per epoch + val metric per epoch
+  - steps figure: train loss per step (log scale) across all epochs
 
 Usage (standalone):
     python src/toolscryo/plot_metrics.py --run-dir runs/<name>/
@@ -18,6 +18,63 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+
+
+def plot_steps(run_dir: Path, save: Path | str | None = None) -> None:
+    """Load train_steps.csv and save (or show) a per-step loss figure."""
+    metrics_dir = Path(run_dir) / "metrics"
+    steps_csv = metrics_dir / "train_steps.csv"
+    if not steps_csv.exists():
+        print(f"[plot_metrics] no train_steps.csv found in {metrics_dir}, skipping steps plot.")
+        return
+
+    df = pd.read_csv(steps_csv)
+    if df.empty:
+        return
+
+    _skip = {"epoch", "lr", "step", "batch", "gradient_norm"}
+    loss_cols = [
+        c for c in df.columns
+        if c not in _skip
+        and "psnr" not in c.lower()
+        and "fsc" not in c.lower()
+    ]
+
+    fig, ax = plt.subplots(figsize=(12, 4))
+    fig.suptitle("Train loss per step", fontsize=13)
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    x = df["step"] if "step" in df.columns else range(len(df))
+
+    color_idx = 0
+    if "TotalLoss" in df.columns:
+        ax.plot(x, df["TotalLoss"], "-", color=colors[color_idx],
+                linewidth=1.2, label="TotalLoss", alpha=0.85)
+        color_idx += 1
+    for col in loss_cols:
+        if col == "TotalLoss":
+            continue
+        ax.plot(x, df[col], "-", color=colors[color_idx % len(colors)],
+                linewidth=1, label=col, alpha=0.7)
+        color_idx += 1
+
+    ax.set_yscale("log")
+    ax.set_xlabel("Global step")
+    ax.set_ylabel("Loss")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3, which="both")
+
+    fig.tight_layout()
+
+    if save:
+        out = Path(save)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out, dpi=150, bbox_inches="tight")
+        print(f"[plot_metrics] steps figure saved to {out}")
+    else:
+        plt.show()
+
+    plt.close(fig)
 
 
 def plot_metrics(run_dir: Path, save: Path | str | None = None) -> None:
@@ -76,8 +133,12 @@ def plot_metrics(run_dir: Path, save: Path | str | None = None) -> None:
         epochs = val_df["epoch"]
         ax.plot(epochs, val_df[fsc_col_val], "s-",
                 color="steelblue", linewidth=2, label="mean")
+        median_col = next((c for c in val_df.columns if "median" in c.lower()), None)
         q1_col = next((c for c in val_df.columns if "q1" in c.lower()), None)
         q3_col = next((c for c in val_df.columns if "q3" in c.lower()), None)
+        if median_col:
+            ax.plot(epochs, val_df[median_col], "D-", color="mediumpurple",
+                    linewidth=1.5, alpha=0.9, label="median")
         if q1_col and q3_col:
             ax.plot(epochs, val_df[q1_col], "--", color="steelblue",
                     linewidth=1, alpha=0.7, label="Q1")
@@ -114,8 +175,12 @@ def plot_metrics(run_dir: Path, save: Path | str | None = None) -> None:
         out.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out, dpi=150, bbox_inches="tight")
         print(f"[plot_metrics] saved to {out}")
+        # Also produce a steps figure alongside the summary
+        steps_save = out.parent / (out.stem + "_steps" + out.suffix)
+        plot_steps(run_dir, save=steps_save)
     else:
         plt.show()
+        plot_steps(run_dir)
 
     plt.close(fig)
 

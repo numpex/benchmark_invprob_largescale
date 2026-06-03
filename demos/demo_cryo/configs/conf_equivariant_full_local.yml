@@ -5,7 +5,7 @@ general:
   output_root: ./runs
   run_name: demo-cryo-ei-full
   execution_mode: local   # change to 'slurm' to submit via submitit
-  max_train_vols: 1   # null = all non-val volumes
+  max_train_vols: 2   # null = all non-val volumes
   max_val_vols: 1
   seed: 0
   target_shape: [32, 64, 64]
@@ -13,7 +13,7 @@ general:
 
 
 training:
-  num_epochs: 3
+  num_epochs: 2
   learning_rate: 1.0e-4
   # Exponential decay: lr * gamma^epoch, floored at lr_min.
   # gamma = 10^{-1/10} ≈ 0.7943 → 1e-4 drops to 1e-5 at epoch 10.
@@ -52,8 +52,11 @@ equivariant:
   use_fourier: false
   view_as_real: true
   eq_weight: 2.0
+  loss_icecream: true
   # If true, EqLoss uses plain spatial MSE instead of Fourier-masked loss. Default false = paper setting.
   eq_use_direct: false
+  # If true, disable the box window in ObsLoss and EqLoss.
+  no_window: false
   # Low-frequency ball forced to 1 in the input wedge mask.
   # 0 = fully missing wedge (icecream default); 0.1 = keep innermost 10% of frequencies.
   wedge_low_support: 0.0

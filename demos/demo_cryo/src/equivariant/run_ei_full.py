@@ -23,7 +23,6 @@ from deepinv.distributed import DistributedContext, distribute
 from equivariant.dataset_full import EIFullDataConfig, build_ei_full_dataloaders
 from equivariant.physics import MissingWedge
 from equivariant.transform import Rotate3D
-from equivariant.losses import ObsLoss, EqLoss
 from equivariant.utils import fsc_shell, save_fsc_figure, save_resolution_histogram, save_slice_figure, GpuFSC
 from toolscryo.trainer import BaseTrainer, ExponentialLRWithFloor
 from toolscryo.utils import dump_config_json, ensure_dir, seed_everything
@@ -68,6 +67,10 @@ class RunEIFullConfig:
     # If True, use plain spatial MSE for the equivariance loss instead of
     # Fourier-masked fourier_loss_batch (icecream eq_use_direct). Default False = paper setting.
     eq_use_direct: bool = False
+    # If True, disable the box window in ObsLoss and EqLoss (pass window=None).
+    # Useful to test whether the window boundary at ±patch_size voxels causes artifacts.
+    no_window: bool = False
+    loss_icecream: bool = False  # If True, use icecream's original loss implementation instead of deepinv Loss subclasses.
 
     # ── Distributed model tiling (mirrors supervised RunConfig) ─────────────
     patch_size: tuple[int, int, int] = (64, 64, 64)
@@ -116,13 +119,29 @@ class EIFullTrainer(BaseTrainer):
     _main_metric = "fsc_res_angstrom"
     _main_metric_higher_is_better = False  # lower resolution value = better
 
+    def _save_vol_slices(self, images_dir, epoch, vol_idx, x, y, f_evn_t, f_odd_t, prefix=""):
+        """Save raw slice figures for one volume (shared by train and val)."""
+        evn_np = x.squeeze().cpu().numpy()
+        odd_np = y.squeeze().cpu().numpy()
+        f_evn  = f_evn_t.squeeze().cpu().numpy()
+        f_odd  = f_odd_t.squeeze().cpu().numpy()
+        save_slice_figure(
+            images_dir, epoch, vol_idx,
+            [evn_np, odd_np, f_evn, f_odd],
+            labels=["Input EVN", "Input ODD", "f(EVN)", "f(ODD)"],
+            title=f"{prefix}Epoch {epoch} | Vol {vol_idx} — raw",
+            fname=f"vol{vol_idx:02d}_raw.png",
+        )
 
     def forward_pass(self, x, y, physics, train):
         """Compute f(ODD) and f(EVN) once; val is handled directly in compute_loss."""
         if not train:
             return torch.zeros_like(y), None
-        x_net = self.model_inference(y=y, physics=physics, x=x, train=True)   # f(ODD)
-        y_net = self.model_inference(y=x, physics=physics, x=y, train=True)   # f(EVN)
+        x_net = self.model_inference(y=y, physics=physics, x=x, train=True)  
+        y_net = self.model_inference(y=x, physics=physics, x=y, train=True)   
+        # Cache outputs for train-slice visualisation in compute_loss.
+        self._last_train_xnet = x_net
+        self._last_train_ynet = y_net
         return x_net, y_net
 
     def compute_loss(self, physics, x, y, train=True, epoch=None, step=False):  # type: ignore[override]
@@ -140,106 +159,93 @@ class EIFullTrainer(BaseTrainer):
             vol_idx   = self._val_vol_idx
             px        = px_list[vol_idx] if vol_idx < len(px_list) else 1.0
 
-            import time
-
-            t0 = time.perf_counter()
             with torch.no_grad():
                 f_evn_t = self.model(x)
                 f_odd_t = self.model(y)
             if hasattr(self.device, 'type') and self.device.type == "cuda":
                 torch.cuda.synchronize()
-            t_forward = time.perf_counter() - t0
 
             if not hasattr(self, "_gpu_fsc"):
                 self._gpu_fsc = GpuFSC(f_evn_t.shape[-1], device=f_evn_t.device)
 
-            t0 = time.perf_counter()
             fsc_curve = self._gpu_fsc(f_evn_t, f_odd_t)
-            t_fsc = time.perf_counter() - t0
 
-            t0 = time.perf_counter()
-            with torch.no_grad():
-                a_evn_t   = physics.A(x)
-                a_odd_t   = physics.A(y)
-                a_f_evn_t = physics.A(f_evn_t)
-                a_f_odd_t = physics.A(f_odd_t)
-            evn_np  = x.squeeze().cpu().numpy()
-            odd_np  = y.squeeze().cpu().numpy()
-            f_evn   = f_evn_t.squeeze().cpu().numpy()
-            f_odd   = f_odd_t.squeeze().cpu().numpy()
-            a_evn   = a_evn_t.squeeze().cpu().numpy()
-            a_odd   = a_odd_t.squeeze().cpu().numpy()
-            a_f_evn = a_f_evn_t.squeeze().cpu().numpy()
-            a_f_odd = a_f_odd_t.squeeze().cpu().numpy()
-            t_cast = time.perf_counter() - t0
-
+            D         = int(f_evn_t.shape[-1])
             k         = fsc_shell(fsc_curve, thr)
-            D         = f_evn.shape[0]
             res       = D * px / max(k, 1)
             self._val_resolutions.append(res)
 
-            print(
-                f"[val-timing] vol={vol_idx}  forward×2={t_forward:.3f}s  "
-                f"fsc={t_fsc:.3f}s  cpu_cast={t_cast:.3f}s",
-                flush=True,
-            )
+            # Inference image: recon = 0.5 * (f(A(f(EVN))) + f(A(f(ODD))))
+            # Must be computed on ALL ranks (distributed model uses NCCL collectives).
+            with torch.no_grad():
+                recon_t = 0.5 * (self.model(physics.A(f_evn_t)) + self.model(physics.A(f_odd_t)))
 
             images_dir = getattr(self, "_images_dir", None)
             if images_dir is not None:
-                t0 = time.perf_counter()
                 save_fsc_figure(images_dir, epoch, f"vol{vol_idx:02d}.png",
                                 fsc_curve, k, res,
                                 f"Epoch {epoch} | Vol {vol_idx}",
                                 thr, vol_size=D, pixel_size=px)
-                t_fsc_fig = time.perf_counter() - t0
-                t0 = time.perf_counter()
+                self._save_vol_slices(images_dir, epoch, vol_idx, x, y, f_evn_t, f_odd_t)
+                recon_np = recon_t.squeeze().cpu().numpy()
+                x_np = x.squeeze().cpu().numpy()
+                y_np = y.squeeze().cpu().numpy()
                 save_slice_figure(
                     images_dir, epoch, vol_idx,
-                    evn_np, odd_np, f_evn, f_odd,
-                    labels=["Input EVN", "Input ODD", "f(EVN)", "f(ODD)"],
-                    title=f"Epoch {epoch} | Vol {vol_idx} — raw",
-                    fname=f"vol{vol_idx:02d}_raw.png",
-                )
-                save_slice_figure(
-                    images_dir, epoch, vol_idx,
-                    a_evn, a_odd, a_f_evn, a_f_odd,
-                    labels=["A(EVN)", "A(ODD)", "A(f(EVN))", "A(f(ODD))"],
-                    title=f"Epoch {epoch} | Vol {vol_idx} — physics A(·)",
-                    fname=f"vol{vol_idx:02d}_physics.png",
-                )
-                t_slice_fig = time.perf_counter() - t0
-                print(
-                    f"[val-timing] vol={vol_idx}  save_fsc_fig={t_fsc_fig:.3f}s  save_slice_fig={t_slice_fig:.3f}s",
-                    flush=True,
+                    [x_np, y_np, recon_np],
+                    labels=["EVN", "ODD", "recon"],
+                    title=f"Epoch {epoch} | Vol {vol_idx} — inference recon",
+                    fname=f"vol{vol_idx:02d}_recon.png",
                 )
 
             self._val_vol_idx += 1
             # Return f_evn as x_net so deepinv can log it if needed.
             return torch.tensor(0.0, device=y.device), f_evn_t.detach(), {}
 
-        return super().compute_loss(physics, x, y, train=True, epoch=epoch, step=step)
+        result = super().compute_loss(physics, x, y, train=True, epoch=epoch, step=step)
+
+        # ── Train slice figures — one per volume per epoch (mirrors val) ──
+        train_images_dir = getattr(self, "_train_images_dir", None)
+        if train_images_dir is not None:
+            if epoch != getattr(self, "_train_slice_epoch", None):
+                self._train_slice_epoch = epoch
+                self._train_vol_idx = 0
+            vol_idx = self._train_vol_idx
+            self._save_vol_slices(
+                train_images_dir, epoch, vol_idx,
+                x, y,
+                self._last_train_ynet.detach(),
+                self._last_train_xnet.detach(),
+                prefix="Train ",
+            )
+            self._train_vol_idx += 1
+
+        return result
 
     def log_metrics_mlops(self, logs: dict, step: int, train: bool = True) -> None:  # type: ignore[override]
         if not train:
             resolutions = getattr(self, "_val_resolutions", [])
             if resolutions:
-                res_arr  = np.array(resolutions)
-                mean_res = float(np.mean(res_arr))
-                q1_res   = float(np.percentile(res_arr, 25))
-                q3_res   = float(np.percentile(res_arr, 75))
+                res_arr   = np.array(resolutions)
+                mean_res  = float(np.mean(res_arr))
+                median_res = float(np.median(res_arr))
+                q1_res    = float(np.percentile(res_arr, 25))
+                q3_res    = float(np.percentile(res_arr, 75))
                 logs["fsc_res_angstrom"] = mean_res
+                logs["fsc_res_median"]   = median_res
                 logs["fsc_res_q1"]       = q1_res
                 logs["fsc_res_q3"]       = q3_res
                 images_dir = getattr(self, "_images_dir", None)
                 if images_dir is not None:
                     save_resolution_histogram(
-                        images_dir, step, resolutions, mean_res, q1_res, q3_res,
+                        images_dir, step, resolutions, mean_res, median_res, q1_res, q3_res,
                         threshold_label=str(getattr(self, "_fsc_threshold", 0.143)),
                     )
                 if self.verbose:
                     print(
                         f"[fsc-eval] epoch={step}  "
-                        f"mean={mean_res:.1f} Å  Q1={q1_res:.1f} Å  Q3={q3_res:.1f} Å  (lower=better)",
+                        f"mean={mean_res:.1f} Å  median={median_res:.1f} Å  "
+                        f"Q1={q1_res:.1f} Å  Q3={q3_res:.1f} Å  (lower=better)",
                         flush=True,
                     )
         super().log_metrics_mlops(logs, step, train=train)
@@ -376,12 +382,20 @@ def run_training(cfg: RunEIFullConfig) -> None:
 
         # ── Losses ───────────────────────────────────────────────────────────
         # ObsLoss and EqLoss are unchanged — they work at any spatial extent.
+        if bool(cfg.loss_icecream):
+            print("[loss] using icecream's original loss implementation (not deepinv Loss subclasses)", flush=True)
+            from equivariant.losses_icecream import ObsLoss, EqLoss
+        else:
+            print("[loss] using deepinv Loss subclasses ObsLoss and EqLoss", flush=True)
+            from equivariant.losses import ObsLoss, EqLoss
+
         losses = [
             ObsLoss(physics, weight=1.0,
-                    use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real)),
+                    use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real),
+                    no_window=bool(cfg.no_window)),
             EqLoss(physics, transform, weight=float(cfg.eq_weight),
                    use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real),
-                   eq_use_direct=bool(cfg.eq_use_direct)),
+                   eq_use_direct=bool(cfg.eq_use_direct), no_window=bool(cfg.no_window)),
         ]
 
         optimizer = torch.optim.Adam(model.parameters(), lr=float(cfg.learning_rate))
@@ -414,9 +428,11 @@ def run_training(cfg: RunEIFullConfig) -> None:
             optimizer_step_multi_dataset=False,
         )
 
-        images_dir = ensure_dir(output_dir / "images") if rank == 0 else None
+        images_dir       = ensure_dir(output_dir / "val_images")   if rank == 0 else None
+        train_images_dir = ensure_dir(output_dir / "train_images") if rank == 0 else None
         trainer._metrics_dir      = ensure_dir(output_dir / "metrics")
         trainer._images_dir       = images_dir
+        trainer._train_images_dir = train_images_dir
         trainer._ckpt_dir         = ensure_dir(output_dir / "checkpoints") if rank == 0 else None
         trainer._scheduler        = scheduler
         trainer._grad_accum_steps = max(1, int(cfg.grad_accumulation_steps))

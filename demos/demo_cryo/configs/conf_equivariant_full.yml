@@ -5,8 +5,8 @@ general:
   output_root: ./runs
   run_name: demo-cryo-ei-full
   execution_mode: submitit   # change to 'slurm' to submit via submitit
-  max_train_vols: 16 # null = all non-val volumes
-  max_val_vols: 8
+  max_train_vols: 32 # null = all non-val volumes
+  max_val_vols: 16
   seed: 0
   target_shape: null
 
@@ -15,14 +15,14 @@ training:
   learning_rate: 1.0e-4
   # Exponential decay: lr * gamma^epoch, floored at lr_min.
   # gamma = 10^{-1/10} ≈ 0.7943 → 1e-4 drops to 1e-5 at epoch 10.
-  scheduler_gamma: 0.7943
+  scheduler_gamma: 1 #0.7943
   scheduler_lr_min: 5.0e-6
   grad_clip: 1.0
   ckp_interval: 5
   eval_interval: 1
   # Accumulate gradients over this many full volumes before each optimiser step.
   # Compensates for DataLoader batch_size=1.
-  grad_accumulation_steps: 8
+  grad_accumulation_steps: 4
 
 data:
   batch_size: 1          # always 1 full volume per item
@@ -49,9 +49,12 @@ equivariant:
   wedge_double_size: false
   use_fourier: false
   view_as_real: true
-  eq_weight: 2.0
+  eq_weight: 1.0
   # If true, EqLoss uses plain spatial MSE instead of Fourier-masked loss. Default false = paper setting.
   eq_use_direct: false
+  no_window: false
+  loss_icecream: true
+
   # Low-frequency ball forced to 1 in the input wedge mask.
   # 0 = fully missing wedge (icecream default); 0.1 = keep innermost 10% of frequencies.
   wedge_low_support: 0.0

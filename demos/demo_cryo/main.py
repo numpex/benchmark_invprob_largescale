@@ -32,6 +32,8 @@ from supervised.run_supervised import RunConfig  # noqa: E402
 from supervised.run_supervised import run_training as run_training_supervised  # noqa: E402
 from equivariant.run_ei_full import RunEIFullConfig  # noqa: E402
 from equivariant.run_ei_full import run_training as run_training_ei_full  # noqa: E402
+from equivariant.run_ei_inference import RunEIInferenceConfig  # noqa: E402
+from equivariant.run_ei_inference import run_inference as run_inference_ei  # noqa: E402
 
 
 
@@ -69,6 +71,11 @@ class CryoTrainingJob:
             from equivariant.run_ei_full import RunEIFullConfig, run_training
             cfg = RunEIFullConfig(**self.cfg_dict)
             cfg.output_dir = str(Path(cfg.output_dir) / f"slurm-{env.job_id}")
+        elif self.method == "ei_inference":
+            from equivariant.run_ei_inference import RunEIInferenceConfig, run_inference
+            cfg = RunEIInferenceConfig(**self.cfg_dict)
+            cfg.output_dir = str(Path(cfg.output_dir) / f"slurm-{env.job_id}")
+            return run_inference(cfg)
         else:
             raise ValueError(f"Unknown method: {self.method}")
 
@@ -118,13 +125,12 @@ def load_config(path: str | Path) -> dict:
     if not isinstance(conf, dict):
         raise ValueError("Top-level YAML config must be a dictionary.")
 
-    for section_name in ("general", "training", "slurm"):
+    method = str(conf.get("method", "supervised")).lower()
+    required = ["general", "slurm"] if method == "ei_inference" else ["general", "training", "slurm"]
+    for section_name in required:
         _require_section(conf, section_name)
 
-    method = str(conf.get("method", "supervised")).lower()
-    if method == "supervised":
-        _require_section(conf, "distributed")
-    elif method == "equivariant_full":
+    if method in ("supervised", "equivariant_full", "ei_inference"):
         _require_section(conf, "distributed")
 
     return conf
@@ -151,8 +157,10 @@ def build_run_config(conf: dict):
         return "supervised", _build_supervised_config(conf)
     elif method == "equivariant_full":
         return "equivariant_full", _build_equivariant_full_config(conf)
+    elif method == "ei_inference":
+        return "ei_inference", _build_ei_inference_config(conf)
     else:
-        raise ValueError(f"Unknown method '{method}'. Supported: supervised, equivariant_full.")
+        raise ValueError(f"Unknown method '{method}'. Supported: supervised, equivariant_full, ei_inference.")
 
 
 def _build_supervised_config(conf: dict):
@@ -261,6 +269,13 @@ def _build_equivariant_full_config(conf: dict):
         grad_accumulation_steps=int(
             training.get("grad_accumulation_steps", default.grad_accumulation_steps)
         ),
+        eq_use_direct=bool(equivariant.get("eq_use_direct", default.eq_use_direct)),
+        loss_icecream=bool(equivariant.get("loss_icecream", default.loss_icecream)),
+        no_window=bool(equivariant.get("no_window", default.no_window)),
+        use_fourier=bool(equivariant.get("use_fourier", default.use_fourier)),
+        view_as_real=bool(equivariant.get("view_as_real", default.view_as_real)),
+        wedge_low_support=float(equivariant.get("wedge_low_support", default.wedge_low_support)),
+        ref_wedge_support=float(equivariant.get("ref_wedge_support", default.ref_wedge_support)),
         eval_fsc=bool(equivariant.get("eval_fsc", default.eval_fsc)),
         fsc_threshold=float(equivariant.get("fsc_threshold", default.fsc_threshold)),
         pixel_size_angstrom=(
@@ -268,6 +283,53 @@ def _build_equivariant_full_config(conf: dict):
             if equivariant.get("pixel_size_angstrom") is not None
             else None
         ),
+    )
+
+
+def _build_ei_inference_config(conf: dict):
+    general     = _require_section(conf, "general")
+    distributed = _require_section(conf, "distributed")
+    inference   = conf.get("inference", {})
+    slurm       = _require_section(conf, "slurm")
+
+    default = RunEIInferenceConfig()
+
+    timestamp  = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_name   = str(general.get("run_name", slurm.get("job_name", "demo-cryo-ei-inference")))
+    out_dir    = Path(general.get("output_root", "./runs")) / f"{run_name}_{timestamp}"
+
+    return RunEIInferenceConfig(
+        checkpoint_path=str(inference.get("checkpoint_path", default.checkpoint_path)),
+        output_dir=str(out_dir),
+        input_dir=str(general.get("input_dir", default.input_dir)),
+        max_infer_vols=int(general.get("max_infer_vols", default.max_infer_vols)),
+        seed=int(general.get("seed", default.seed)),
+        target_shape=_parse_target_shape(general.get("target_shape", default.target_shape)),
+        num_workers=int(inference.get("num_workers", default.num_workers)),
+        pin_memory=bool(inference.get("pin_memory", default.pin_memory)),
+        prefetch_factor=int(inference.get("prefetch_factor", default.prefetch_factor)),
+        persistent_workers=bool(inference.get("persistent_workers", default.persistent_workers)),
+        tilt_max=float(inference.get("tilt_max", default.tilt_max)),
+        tilt_min=float(inference.get("tilt_min", default.tilt_min)),
+        use_spherical_support=bool(inference.get("use_spherical_support", default.use_spherical_support)),
+        wedge_double_size=bool(inference.get("wedge_double_size", default.wedge_double_size)),
+        wedge_low_support=float(inference.get("wedge_low_support", default.wedge_low_support)),
+        ref_wedge_support=float(inference.get("ref_wedge_support", default.ref_wedge_support)),
+        patch_size=tuple(int(v) for v in distributed.get("patch_size", default.patch_size)),
+        overlap=tuple(int(v) for v in distributed.get("overlap", default.overlap)),
+        max_batch_size=distributed.get("max_batch_size", default.max_batch_size),
+        checkpoint_batches=_normalize_checkpoint_batches(
+            distributed.get("checkpoint_batches", default.checkpoint_batches)
+        ),
+        fsc_threshold=float(inference.get("fsc_threshold", default.fsc_threshold)),
+        pixel_size_angstrom=(
+            float(inference["pixel_size_angstrom"])
+            if inference.get("pixel_size_angstrom") is not None else None
+        ),
+        icecream_glob=str(inference.get("icecream_glob", default.icecream_glob)),
+        isonet_glob=str(inference.get("isonet_glob", default.isonet_glob)),
+        isonet_fallback_glob=str(inference.get("isonet_fallback_glob", default.isonet_fallback_glob)),
+        save_recon_mrc=bool(inference.get("save_recon_mrc", default.save_recon_mrc)),
     )
 
 
@@ -328,6 +390,7 @@ def main() -> None:
     _run_fn = {
         "supervised": run_training_supervised,
         "equivariant_full": run_training_ei_full,
+        "ei_inference": run_inference_ei,
     }
     if execution_mode == "local":
         run_fn = _run_fn.get(method)

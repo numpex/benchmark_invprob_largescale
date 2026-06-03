@@ -140,20 +140,22 @@ def save_resolution_histogram(
     epoch: int,
     resolutions_angstrom: list[float],
     mean_res: float,
+    median_res: float,
     q1_res: float,
     q3_res: float,
     threshold_label: str = "0.143",
 ) -> None:
     """Save a histogram of per-volume FSC resolutions (Å).
 
-    Vertical lines mark mean, Q1 and Q3.
+    Vertical lines mark mean, median, Q1 and Q3.
     """
     fig, ax = plt.subplots(figsize=(7, 4))
     n = len(resolutions_angstrom)
     ax.hist(resolutions_angstrom, bins=max(5, n // 2 + 1), color="steelblue", edgecolor="white", alpha=0.85)
-    ax.axvline(mean_res, color="tomato",   ls="-",  lw=1.8, label=f"mean = {mean_res:.1f} Å")
-    ax.axvline(q1_res,   color="goldenrod", ls="--", lw=1.4, label=f"Q1   = {q1_res:.1f} Å")
-    ax.axvline(q3_res,   color="goldenrod", ls=":",  lw=1.4, label=f"Q3   = {q3_res:.1f} Å")
+    ax.axvline(mean_res,   color="tomato",    ls="-",  lw=1.8, label=f"mean   = {mean_res:.1f} Å")
+    ax.axvline(median_res, color="mediumpurple", ls="-", lw=1.8, label=f"median = {median_res:.1f} Å")
+    ax.axvline(q1_res,     color="goldenrod", ls="--", lw=1.4, label=f"Q1     = {q1_res:.1f} Å")
+    ax.axvline(q3_res,     color="goldenrod", ls=":",  lw=1.4, label=f"Q3     = {q3_res:.1f} Å")
     ax.set_xlabel("FSC resolution (Å)  —  lower is better")
     ax.set_ylabel("# volumes")
     ax.set_title(f"Epoch {epoch} | FSC@{threshold_label} resolution ({n} vols)")
@@ -169,44 +171,53 @@ def save_slice_figure(
     images_dir: Path,
     epoch: int,
     vol_idx: int,
-    col0: np.ndarray,
-    col1: np.ndarray,
-    col2: np.ndarray,
-    col3: np.ndarray,
+    cols: list[np.ndarray],
     labels: list[str] | None = None,
     title: str | None = None,
     subdir: str | None = None,
     fname: str | None = None,
 ) -> None:
-    """Save a 3×4 PNG with all three orthogonal mid-slices.
+    """Save a 3×N PNG with all three orthogonal mid-slices.
 
     Rows: XY (z-mid) / XZ (y-mid) / YZ (x-mid).
-    Cols: col0 | col1 | col2 | col3  (caller chooses labels).
+    Cols: one column per entry in *cols*  (caller chooses labels).
+    N = len(cols), so any number of columns is supported.
     """
     def _slices(v: np.ndarray, max_px: int = 256) -> list[np.ndarray]:
-        v = v.astype(np.float32)
+        # Slice first (returns views, no copy), then convert only the small 2-D result.
         d, h, w = v.shape
         slcs = [v[d // 2, :, :], v[:, h // 2, :], v[:, :, w // 2]]
         out = []
         for s in slcs:
             # Stride-subsample to keep at most max_px pixels per axis
             sr, sc = max(1, s.shape[0] // max_px), max(1, s.shape[1] // max_px)
-            out.append(s[::sr, ::sc])
+            out.append(s[::sr, ::sc].astype(np.float32))
         return out
 
-    cols = [col0, col1, col2, col3]
+    n_cols = len(cols)
     if labels is None:
-        labels = ["Col 0", "Col 1", "Col 2", "Col 3"]
+        labels = [f"Col {i}" for i in range(n_cols)]
     planes = ["XY (z-mid)", "XZ (y-mid)", "YZ (x-mid)"]
-    all_vals = np.concatenate([c.ravel() for c in cols])
-    vmin = float(np.percentile(all_vals, 1))
-    vmax = float(np.percentile(all_vals, 99))
 
-    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    # Pre-compute slices once per column (4 calls) — avoids recomputing 12× inside the loop.
+    pre = [_slices(v) for v in cols]
+
+    # Per-row 1st–99th percentile across all columns — clips outliers while keeping
+    # columns comparable within each row (handles missing-wedge contrast differences).
+    row_ranges = [
+        (float(np.percentile(np.concatenate([slc_list[r].ravel() for slc_list in pre]), 1)),
+         float(np.percentile(np.concatenate([slc_list[r].ravel() for slc_list in pre]), 99)))
+        for r in range(3)
+    ]
+
+    fig, axes = plt.subplots(3, n_cols, figsize=(4 * n_cols, 12))
+    if n_cols == 1:
+        axes = axes[:, np.newaxis]  # keep 2-D indexing consistent
     for row, plane in enumerate(planes):
-        for col, (vol, label) in enumerate(zip(cols, labels)):
+        vmin, vmax = row_ranges[row]
+        for col, (label, slc_list) in enumerate(zip(labels, pre)):
             ax = axes[row, col]
-            ax.imshow(_slices(vol)[row], cmap="gray", vmin=vmin, vmax=vmax)
+            ax.imshow(slc_list[row], cmap="gray", vmin=vmin, vmax=vmax)
             ax.axis("off")
             if row == 0:
                 ax.set_title(label)
@@ -218,7 +229,7 @@ def save_slice_figure(
     folder = subdir if subdir is not None else f"fsc_epoch{epoch:04d}"
     out = Path(images_dir) / folder / (fname if fname is not None else f"vol{vol_idx:02d}_slices.png")
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=120)
+    fig.savefig(out, dpi=80)
     plt.close(fig)
 
 
@@ -269,3 +280,53 @@ class GpuFSC:
         denom = torch.sqrt(den1 * den2)
         fsc   = torch.where(denom > 0.0, num / denom, torch.zeros_like(num))
         return fsc.cpu().numpy()
+
+
+# ---------------------------------------------------------------------------
+# CSV stats helper
+# ---------------------------------------------------------------------------
+
+def save_slice_stats_csv(
+    path: Path,
+    labels: list[str],
+    vols: list["np.ndarray | None"],
+) -> None:
+    """Write per-image per-plane statistics to a CSV file.
+
+    For each valid (non-None) volume in *vols*, extracts the three orthogonal
+    mid-plane slices (XY, XZ, YZ) at full resolution and records:
+    min, max, 1st-percentile (q01), 99th-percentile (q99).
+
+    :param path: Destination CSV file path (parent dirs created automatically).
+    :param labels: One label per entry in *vols*.
+    :param vols: List of float32 numpy arrays of shape (D, H, W), or None for missing volumes.
+    """
+    import csv as _csv
+
+    planes = ["XY", "XZ", "YZ"]
+    rows: list[dict] = []
+    for label, vol in zip(labels, vols):
+        if vol is None:
+            continue
+        d, h, w = vol.shape
+        mid_slices = [
+            vol[d // 2, :, :],   # XY  (z-mid)
+            vol[:, h // 2, :],   # XZ  (y-mid)
+            vol[:, :, w // 2],   # YZ  (x-mid)
+        ]
+        for plane, slc in zip(planes, mid_slices):
+            arr = slc.ravel().astype(np.float32)
+            rows.append({
+                "image": label,
+                "plane": plane,
+                "min":   float(arr.min()),
+                "max":   float(arr.max()),
+                "q01":   float(np.percentile(arr, 1)),
+                "q99":   float(np.percentile(arr, 99)),
+            })
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as f:
+        writer = _csv.DictWriter(f, fieldnames=["image", "plane", "min", "max", "q01", "q99"])
+        writer.writeheader()
+        writer.writerows(rows)

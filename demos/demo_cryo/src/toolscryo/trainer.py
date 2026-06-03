@@ -151,14 +151,19 @@ class BaseTrainer(dinv.Trainer):
             self._epoch_fwd_loss_time  += p_loss.elapsed_s
             self._epoch_bwd_time       += p_bwd.elapsed_s
 
+            # ── Per-step CSV logging (rank 0 only) ───────────────────────
             if self.verbose:
-                print(
-                    f"[step] ep={epoch} batch={self._train_batch_count}  "
-                    f"model={p_model.elapsed_s:.2f}s/{p_model.peak_mb:.0f}MB  "
-                    f"loss={p_loss.elapsed_s:.2f}s/{p_loss.peak_mb:.0f}MB  "
-                    f"bwd={p_bwd.elapsed_s:.2f}s/{p_bwd.peak_mb:.0f}MB",
-                    flush=True,
-                )
+                metrics_dir = getattr(self, "_metrics_dir", None)
+                if metrics_dir is not None:
+                    self._global_step = getattr(self, "_global_step", 0) + 1
+                    step_row = {
+                        "epoch": epoch,
+                        "step": self._global_step,
+                        "batch": self._train_batch_count,
+                        "lr": self.optimizer.param_groups[0]["lr"],
+                        **{k: v for k, v in logs.items() if isinstance(v, (int, float))},
+                    }
+                    append_metrics_row(Path(metrics_dir) / "train_steps.csv", step_row)
 
         return loss_total, x_net, logs
 
@@ -170,10 +175,7 @@ class BaseTrainer(dinv.Trainer):
         if not train:
             self.val_step(step, logs)
 
-        if train:
-            scheduler = getattr(self, "_scheduler", None)
-            if scheduler is not None:
-                scheduler.step()
+
 
         # ── Rank-0 only below ─────────────────────────────────────────────
         if not self.verbose:
@@ -190,20 +192,23 @@ class BaseTrainer(dinv.Trainer):
 
         if train:
             n = max(1, getattr(self, "_train_batch_count", 1))
-            t_total = time.perf_counter() - getattr(self, "_train_epoch_start", time.perf_counter())
-            t_model = getattr(self, "_epoch_fwd_model_time", 0.0)
-            t_loss  = getattr(self, "_epoch_fwd_loss_time",  0.0)
-            t_bwd   = getattr(self, "_epoch_bwd_time",       0.0)
-            t_fwd   = t_model + t_loss
+            t_total   = time.perf_counter() - getattr(self, "_train_epoch_start", time.perf_counter())
+            t_model   = getattr(self, "_epoch_fwd_model_time", 0.0)
+            t_loss    = getattr(self, "_epoch_fwd_loss_time",  0.0)
+            t_bwd     = getattr(self, "_epoch_bwd_time",       0.0)
+            t_compute = t_model + t_loss + t_bwd
+            alloc_gb  = torch.cuda.max_memory_allocated() / 1024**3
+            total_gb  = torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory / 1024**3
             print(
-                f"[time] train ep={step}  total={t_total:.2f}s  "
-                f"fwd={t_fwd:.2f}s (model={t_model:.1f}s loss={t_loss:.2f}s)  "
-                f"bwd={t_bwd:.2f}s  other={t_total-t_fwd-t_bwd:.2f}s  n={n}",
+                f"[train ep={step}]  "
+                f"total={t_total:.1f}s  "
+                f"avg_compute/img={t_compute/n:.2f}s "
+                f"(model={t_model/n:.2f}s  loss={t_loss/n:.2f}s  bwd={t_bwd/n:.2f}s)  "
+                f"avg_total/img={t_total/n:.2f}s  "
+                f"max_gpu={alloc_gb:.2f}/{total_gb:.1f} GB  "
+                f"n={n}",
                 flush=True,
             )
-            alloc_gb = torch.cuda.max_memory_allocated() / 1024**3
-            total_gb = torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory / 1024**3
-            print(f"[gpu]  ep={step}  alloc={alloc_gb:.2f}/{total_gb:.1f} GB", flush=True)
             torch.cuda.reset_peak_memory_stats()
             self._val_start = time.perf_counter()
             self._val_batch_count = 0
@@ -213,6 +218,10 @@ class BaseTrainer(dinv.Trainer):
             print(f"[time] val   ep={step}  total={t_val:.1f}s  per_img={t_val/n_val:.2f}s  n={n_val}", flush=True)
             self._val_start = None
 
+        if train:
+            scheduler = getattr(self, "_scheduler", None)
+            if scheduler is not None:
+                scheduler.step()
         # ── Checkpointing (rank 0 only, already inside verbose guard) ────
         ckpt_dir = getattr(self, "_ckpt_dir", None)
         if not train and ckpt_dir is not None:
