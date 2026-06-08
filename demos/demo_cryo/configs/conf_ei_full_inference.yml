@@ -6,7 +6,7 @@ general:
   input_dir: /lustre/fswork/projects/rech/fio/commun/cryolithe/empiar-11830
   output_root: ./runs
   run_name: demo-cryo-ei-inference
-  max_infer_vols: 16
+  max_infer_vols: 4
   seed: 0                 # must match training seed to reproduce the same val split
   target_shape: # null
 
@@ -24,6 +24,12 @@ inference:
   pin_memory: true
   prefetch_factor: 1
   persistent_workers: true
+
+  # Model (must match training config)
+  model_type: icecream        # "icecream" or "deepinv"
+  unet_f_maps: 64
+  unet_num_levels: 4
+  unet_dropout: 0.1
 
   # Physics (must match training config)
   tilt_max: 60.0
@@ -44,6 +50,7 @@ inference:
 
   # Output
   save_recon_mrc: false
+
 
 slurm:
   job_name: demo-cryo-ei-inference

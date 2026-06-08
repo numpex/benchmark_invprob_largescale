@@ -1,50 +1,45 @@
-method: equivariant_full
+method: equivariant_patch
 
 general:
   input_dir: ./dataset/empiar-11830
   output_root: ./runs
-  run_name: demo-cryo-ei-full
-  execution_mode: local   # change to 'slurm' to submit via submitit
+  run_name: demo-cryo-ei-patch
+  execution_mode: local   # change to 'submitit' to submit via SLURM
   max_train_vols: 1   # null = all non-val volumes
   max_val_vols: 0
   seed: 0
-  target_shape: [32, 64, 64]
-  #target_shape: [64, 128, 128]
-
 
 training:
   num_epochs: 5
   learning_rate: 1.0e-4
-
   scheduler_gamma: 1 # learning rate constant (no decay)
   scheduler_lr_min: 1.0e-6
   grad_clip: 1.0
   ckp_interval: 10
-  eval_interval: 2
-  # Accumulate gradients over this many full volumes before each optimiser step.
-  # Compensates for DataLoader batch_size=1.
-  grad_accumulation_steps: 2
+  eval_interval: 1
+  grad_accumulation_steps: 1
+  log_every_n_epochs: 2     # print loss summary every N epochs
+  infer_stride: 36         # icecream default stride for sliding-window inference
+  infer_batch_size: 0      # 0 = same as training batch_size
+  infer_downsample: 4      # spatial downsample factor before inference (1 = no downsampling)
+  infer_train: true        # run inference on training volumes
+  infer_val: true          # run inference on validation volumes
+  save_mrc: false          # save reconstruction as .mrc file
   model_type: icecream     # "deepinv" (BatchNorm, no dropout) | "icecream" (no norm, dropout=0.1)
+  unet_residual: false     # deepinv UNet only: residual connections
   unet_f_maps: 64          # icecream UNet only: base feature-map count
   unet_num_levels: 4       # icecream UNet only: encoder depth
   unet_dropout: 0.1        # icecream UNet only: dropout probability
 
-data:
-  batch_size: 1          # always 1 full volume per item
+patch:
+
+  n_crops_per_vol: 2        # virtual crops per volume per epoch
+  batch_size: 2
   num_workers: 1
   pin_memory: true
   prefetch_factor: 1
   persistent_workers: true
-
-distributed:
-  # UNet tile size — must be strictly < target_shape in every dimension.
-  patch_size: [16, 16, 16]
-  overlap: [8, 8, 8]
-  # Maximum number of tiles processed simultaneously on the GPU.
-  # Reduce to save VRAM; increase to improve throughput.
-  max_batch_size: 2
-  # Gradient checkpointing inside the distributed tiled forward pass.
-  checkpoint_batches: "auto"
+  normalize: true            # whole-volume zero-mean, unit-std (matches icecream's load_volume normalization)
 
 equivariant:
   tilt_max: 60.0
@@ -54,23 +49,19 @@ equivariant:
   use_fourier: false
   view_as_real: true
   eq_weight: 2.0
+  # If true, EqLoss uses plain spatial MSE instead of Fourier-masked loss. Default false = paper setting.
   eq_use_direct: false
   no_window: false
   wedge_low_support: 0.0
   ref_wedge_support: 1.0
-  eval_fsc: true
-  fsc_threshold: 0.143   # gold-standard FSC resolution criterion
-  # Fallback pixel size (Å/px) used when the MRC header voxel_size == 0.
-  # Leave as null to fall back to 1.0 (resolution reported in shells, not Å).
   pixel_size_angstrom: 7.84
 
-
 slurm:
-  job_name: demo-cryo-ei-full
+  job_name: demo-cryo-ei-patch
   nodes: 1
   gpus_per_node: 1
   ntasks_per_node: 1
-  cpus_per_task: 20
+  cpus_per_task: 10
   time: "01:00:00"
   account: "fio@a100"
   constraint: "a100"

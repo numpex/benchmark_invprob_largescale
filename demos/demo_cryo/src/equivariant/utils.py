@@ -1,8 +1,11 @@
 """Shared utilities for equivariant cryo-ET training.
 
 Contains dataset discovery helpers (``EIDataBundle``, ``_discover_pairs``,
-``_split_pairs``) and visualisation helpers (``save_slice_figure``) used by
-both the patch and full-volume variants.
+``_split_pairs``), I/O helpers (``_find_mrc``, ``_save_mrc``,
+``_read_mrc_vol_size``, ``_read_pixel_sizes``), volume preprocessing
+utilities (``_center_crop``, ``_znorm``), and visualisation helpers
+(``save_slice_figure``, ``GpuFSC``) used by both the patch and full-volume
+variants.
 """
 from __future__ import annotations
 
@@ -13,6 +16,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import mrcfile
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -24,17 +28,48 @@ class EIDataBundle:
     val_loader: DataLoader
 
 
+def _read_tlt(path: Path) -> tuple[float, float]:
+    """Read a tlt file and return (tilt_min, tilt_max) in degrees.
+
+    Tlt files are plain text with one floating-point angle per line.
+    """
+    angles = np.loadtxt(str(path))
+    return float(angles.min()), float(angles.max())
+
+
+def _find_tlt_for_dir(tomo_dir: Path) -> Path | None:
+    """Find the full-series tlt file for a tomo directory.
+
+    Looks for ``angles_*.tlt`` files, preferring the full-series file
+    (i.e. excluding ``*_split1.tlt`` / ``*_split2.tlt``).  Falls back to
+    any tlt file if no full-series file is found.
+    """
+    candidates = sorted(tomo_dir.glob("angles_*.tlt"))
+    full_series = [
+        p for p in candidates
+        if not (p.stem.endswith("_split1") or p.stem.endswith("_split2"))
+    ]
+    if full_series:
+        return full_series[0]
+    if candidates:
+        return candidates[0]
+    return None
+
+
 def _discover_pairs(
     input_dir: Path,
     evn_glob: str = "vol*split1*.mrc",
     odd_glob: str = "vol*split2*.mrc",
-) -> tuple[list[Path], list[Path | None]]:
-    """Discover EVN and ODD volumes.
+) -> tuple[list[Path], list[Path | None], list[Path | None]]:
+    """Discover EVN and ODD volumes, and the per-tomo tlt file if present.
 
-    Returns two parallel lists ``(evn_paths, odd_paths)``.
+    Returns three parallel lists ``(evn_paths, odd_paths, tlt_paths)``.
+    ``tlt_paths[i]`` is the path to the full-series tlt file for the i-th
+    tomo, or ``None`` if no tlt file was found.
     """
     evn_paths: list[Path] = []
     odd_paths: list[Path | None] = []
+    tlt_paths: list[Path | None] = []
 
     for tomo_dir in sorted(input_dir.glob("tomo_*")):
         evn_matches = sorted(tomo_dir.glob(evn_glob))
@@ -48,14 +83,16 @@ def _discover_pairs(
         odd_matches = sorted(tomo_dir.glob(odd_glob))
         evn_paths.append(evn_matches[0])
         odd_paths.append(odd_matches[0] if odd_matches else None)
+        tlt_paths.append(_find_tlt_for_dir(tomo_dir))
 
     n_paired  = sum(p is not None for p in odd_paths)
     n_evnonly = len(evn_paths) - n_paired
+    n_tlt     = sum(p is not None for p in tlt_paths)
     print(
         f"[ei-data] discovered {len(evn_paths)} tomo dirs: "
-        f"{n_paired} paired EVN+ODD, {n_evnonly} EVN-only."
+        f"{n_paired} paired EVN+ODD, {n_evnonly} EVN-only, {n_tlt} with tlt files."
     )
-    return evn_paths, odd_paths
+    return evn_paths, odd_paths, tlt_paths
 
 
 def _split_pairs(
@@ -64,21 +101,86 @@ def _split_pairs(
     n_val: int,
     seed: int,
     max_train: int | None,
-) -> tuple[list, list, list, list]:
-    """Shuffle and split paired (evn, odd) lists into train / val."""
+    extra: list | None = None,
+) -> tuple[list, list, list, list, list, list]:
+    """Shuffle and split (evn, odd, extra) lists into train / val.
+
+    ``extra`` is any parallel list (e.g. tilt_ranges); ``None`` values are
+    fine.  Returns ``(train_evn, train_odd, val_evn, val_odd, train_extra, val_extra)``.
+    """
     rng = random.Random(seed)
     indices = list(range(len(evn_paths)))
     rng.shuffle(indices)
-    n_val = max(1, min(n_val, len(indices) - 1))
+    n_val = max(0, min(n_val, len(indices) - 1))
     val_idx   = indices[:n_val]
     train_idx = indices[n_val:]
     if max_train is not None:
         train_idx = train_idx[:max_train]
-    train_evn = [evn_paths[i] for i in train_idx]
-    train_odd = [odd_paths[i] for i in train_idx]
-    val_evn   = [evn_paths[i] for i in val_idx]
-    val_odd   = [odd_paths[i] for i in val_idx]
-    return train_evn, train_odd, val_evn, val_odd
+    _extra = extra if extra is not None else [None] * len(evn_paths)
+    train_evn   = [evn_paths[i] for i in train_idx]
+    train_odd   = [odd_paths[i] for i in train_idx]
+    train_extra = [_extra[i] for i in train_idx]
+    val_evn     = [evn_paths[i] for i in val_idx]
+    val_odd     = [odd_paths[i] for i in val_idx]
+    val_extra   = [_extra[i] for i in val_idx]
+    return train_evn, train_odd, val_evn, val_odd, train_extra, val_extra
+
+
+# ---------------------------------------------------------------------------
+# MRC I/O / volume helpers
+# ---------------------------------------------------------------------------
+
+def _find_mrc(tomo_dir: Path, *globs: str) -> Path | None:
+    """Return the first file matching any glob in *tomo_dir*, or None."""
+    for glob in globs:
+        matches = sorted(tomo_dir.glob(glob))
+        if matches:
+            return matches[0]
+    return None
+
+
+def _save_mrc(path: Path, vol_dhw: np.ndarray) -> None:
+    """Save a (D, H, W) float32 numpy array as an MRC file (axis order: Z, Y, X)."""
+    vol_zyx = np.moveaxis(vol_dhw.astype(np.float32), 2, 0)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with mrcfile.new(str(path), overwrite=True) as mrc:
+        mrc.set_data(vol_zyx)
+
+
+def _read_mrc_vol_size(path: Path) -> int:
+    """Read an MRC header and return the smallest spatial dimension (cubic vol side)."""
+    with mrcfile.open(str(path), permissive=True, mode="r") as mrc:
+        nx, ny, nz = int(mrc.header.nx), int(mrc.header.ny), int(mrc.header.nz)
+    return min(nx, ny, nz)
+
+
+def _read_pixel_sizes(
+    evn_paths: list[Path],
+    fallback: float | None = None,
+) -> list[float]:
+    """Read voxel_size.x from each EVN MRC header (header-only, no data loaded)."""
+    sizes = []
+    for p in evn_paths:
+        with mrcfile.open(str(p), permissive=True, mode="r") as mrc:
+            px = float(mrc.voxel_size.x)
+        if px <= 0.0:
+            px = fallback if fallback is not None else 1.0
+        sizes.append(px)
+    return sizes
+
+
+def _center_crop(vol: np.ndarray, size: int = 512) -> np.ndarray:
+    """Center-crop (D, H, W) to a cube of min(size, smallest dim)."""
+    D, H, W = vol.shape
+    s = min(size, D, H, W)
+    d0, h0, w0 = (D - s) // 2, (H - s) // 2, (W - s) // 2
+    return vol[d0:d0 + s, h0:h0 + s, w0:w0 + s]
+
+
+def _znorm(vol: np.ndarray) -> np.ndarray:
+    """Z-score normalise a volume in-place (returns float32)."""
+    mu, sigma = float(vol.mean()), float(vol.std())
+    return ((vol - mu) / (sigma + 1e-8)).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -330,3 +432,5 @@ def save_slice_stats_csv(
         writer = _csv.DictWriter(f, fieldnames=["image", "plane", "min", "max", "q01", "q99"])
         writer.writeheader()
         writer.writerows(rows)
+
+

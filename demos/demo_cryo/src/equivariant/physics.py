@@ -27,7 +27,7 @@ import numpy as np
 import torch
 import deepinv as dinv
 
-from icecream_orig.utils.utils import get_wedge_3d_new, symmetrize_3D
+from icecream_orig.utils.utils import symmetrize_3D
 
 
 class MissingWedge(dinv.physics.LinearPhysics):
@@ -76,58 +76,143 @@ class MissingWedge(dinv.physics.LinearPhysics):
             D = H = W = crop_size  # cubic — legacy behaviour
 
         self._volume_shape = (D, H, W)
+        self._wedge_double_size = wedge_double_size
+        self._wedge_low_support = wedge_low_support
+        self._ref_wedge_support = ref_wedge_support
+        self._use_spherical_support = use_spherical_support
+        self._tilt_min = float(tilt_min)
+        self._tilt_max = float(tilt_max)
 
-        # ── Build wedge mask ─────────────────────────────────────────────
-        # get_wedge_3d_new only works correctly for cubic inputs (internal
-        # broadcast assumes equal axes). Build cubic at max_dim, then crop
-        # the centred Fourier grid to the actual (D+1, H+1, W+1) shape.
-        max_dim = max(D, H, W)
-        mask_size = max_dim * 2 if wedge_double_size else max_dim
-
-        wedge_np, _ = get_wedge_3d_new(
-            mask_size,
-            tilt_max,
-            tilt_min,
-            low_support=wedge_low_support,
-            use_spherical_support=use_spherical_support,
-        )
-        mask = torch.from_numpy(wedge_np.astype(np.float32))  # (mask_size+1,)*3
-
-        # symmetrize + binarize — matches icecream's get_real_binary_filter
-        mask_sym = symmetrize_3D(mask)
-        mask = (mask + mask_sym) / 2
-        mask[mask > 0.1] = 1.0
-
-        # Crop centred to (D+1, H+1, W+1). No-op for cubic D==H==W==max_dim.
-        full_side = mask_size + 1
-        dD = (full_side - (D + 1)) // 2
-        dH = (full_side - (H + 1)) // 2
-        dW = (full_side - (W + 1)) // 2
-        mask = mask[dD: dD + D + 1, dH: dH + H + 1, dW: dW + W + 1]  # (D+1, H+1, W+1)
-
-        # Stored at (D+1, H+1, W+1) — analogous to icecream's wedge_full.
+        mask, mask_ref = self._build_masks(tilt_max, tilt_min, torch.device(device))
         self.register_buffer("mask", mask)
+        self.register_buffer("mask_ref", mask_ref)
 
-        # wedge_ref: native resolution (no doubling — ref is never doubled in icecream).
-        # Build cubic at max_dim and crop to (D+1, H+1, W+1), then [:-1,:-1,:-1] → (D,H,W).
-        wedge_ref_np, _ = get_wedge_3d_new(
-            max_dim,
-            tilt_max,
-            tilt_min,
-            low_support=ref_wedge_support,
-            use_spherical_support=use_spherical_support,
+    def _build_masks(
+        self, tilt_max: float, tilt_min: float, device: torch.device | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Build (mask, mask_ref) tensors on ``device`` using pure torch (no NumPy).
+
+        Called once at init and again by update_angles when the tilt range changes.
+        Runs on whatever device is passed — GPU when available, CPU otherwise.
+        """
+        if device is None:
+            device = self.mask.device
+        D, H, W = self._volume_shape
+        max_dim = max(D, H, W)
+        mask_size = max_dim * 2 if self._wedge_double_size else max_dim
+
+        mask = self._make_wedge_3d_torch(
+            mask_size, tilt_max, tilt_min,
+            self._wedge_low_support, self._use_spherical_support, device,
         )
-        mask_ref = torch.from_numpy(wedge_ref_np.astype(np.float32))  # (max_dim+1,)*3
-        mask_ref_sym = symmetrize_3D(mask_ref)
-        mask_ref = (mask_ref + mask_ref_sym) / 2
-        mask_ref[mask_ref > 0.1] = 1.0
+        if not self._wedge_double_size:
+            # Crop to (D+1, H+1, W+1) only when using native size.
+            # For wedge_double_size=True the full (2*max_dim+1)³ mask must be
+            # preserved so fourier_loss can zero-pad volumes to mask_size before FFT.
+            full_side = mask_size + 1
+            dD = (full_side - (D + 1)) // 2
+            dH = (full_side - (H + 1)) // 2
+            dW = (full_side - (W + 1)) // 2
+            mask = mask[dD: dD + D + 1, dH: dH + H + 1, dW: dW + W + 1]
+
+        mask_ref = self._make_wedge_3d_torch(
+            max_dim, tilt_max, tilt_min,
+            self._ref_wedge_support, self._use_spherical_support, device,
+        )
         full_side_ref = max_dim + 1
         dD_r = (full_side_ref - (D + 1)) // 2
         dH_r = (full_side_ref - (H + 1)) // 2
         dW_r = (full_side_ref - (W + 1)) // 2
         mask_ref = mask_ref[dD_r: dD_r + D + 1, dH_r: dH_r + H + 1, dW_r: dW_r + W + 1]
-        # [:-1,:-1,:-1] → (D, H, W)
-        self.register_buffer("mask_ref", mask_ref[:-1, :-1, :-1])
+
+        return mask, mask_ref[:-1, :-1, :-1]
+
+    @staticmethod
+    def _make_wedge_3d_torch(
+        mask_size: int,
+        tilt_max: float,
+        tilt_min: float,
+        low_support: float,
+        use_spherical: bool,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Pure-torch equivalent of get_wedge_3d_new + symmetrize_3D + binarize.
+
+        Everything runs on ``device`` — no NumPy allocation, no CPU round-trip.
+        Uses broadcasting for r² so only one (S,S,S) array is materialised.
+        """
+        S = mask_size + 1
+        tan_max = float(np.tan(np.deg2rad(tilt_max)))
+        tan_min = float(np.tan(np.deg2rad(tilt_min)))
+        lin = torch.linspace(-1.0, 1.0, S, device=device)
+
+        # ── 2D wedge slice (matches get_wedge_new, rotation=0) ──────────
+        # np.meshgrid(x,y) 'xy' default: xx[i,j]=x[j] (axis1), yy[i,j]=y[i] (axis0)
+        xx2 = lin.unsqueeze(0).expand(S, S)   # (S,S) — x varies along axis 1
+        yy2 = lin.unsqueeze(1).expand(S, S)   # (S,S) — y varies along axis 0
+        radius = 10.0 if use_spherical else 2.0
+        w2d = (xx2 ** 2 + yy2 ** 2 < radius).float()
+        w2d = w2d.clone()
+        w2d[yy2 > tan_max * xx2] = 0.0
+        w2d[yy2 < tan_min * xx2] = 0.0
+        w2d = w2d.T.contiguous()                                      # matches wedge.T in icecream
+        w2d = w2d + torch.flip(torch.flip(w2d, [0]), [1])            # flipud + fliplr + add
+
+        # ── 3D: broadcast 2D wedge, apply spherical ball ─────────────────
+        # r² computed with broadcasting — only one (S,S,S) tensor materialised
+        r_sq = lin.view(1, S, 1) ** 2 + lin.view(S, 1, 1) ** 2 + lin.view(1, 1, S) ** 2
+        ball = (r_sq < 1.0).float() if use_spherical else torch.ones(S, S, S, device=device)
+        # w2d (S,S) → (1,S,S): broadcast along axis 0 (matches np right-align)
+        wedge_3d = w2d.unsqueeze(0) * ball
+        if low_support > 0.0:
+            wedge_3d[r_sq < low_support] = 1.0
+
+        # symmetrize + binarize
+        mask_sym = symmetrize_3D(wedge_3d)
+        wedge_3d = (wedge_3d + mask_sym) / 2.0
+        wedge_3d[wedge_3d > 0.1] = 1.0
+        return wedge_3d
+
+    @property
+    def tilt_key(self) -> tuple[float, float]:
+        """Current (tilt_min, tilt_max) for change detection."""
+        return (self._tilt_min, self._tilt_max)
+
+    def update_parameters(self, tilt_min=None, tilt_max=None, **kwargs) -> None:
+        """deepinv hook — called by ``Physics.update(**params)`` each training step.
+
+        When the dataloader returns ``(evn, odd, {"tilt_min": t, "tilt_max": t})``,
+        deepinv extracts the dict and calls this method so the wedge is rebuilt
+        in-place before the loss is computed.
+
+        With batch_size > 1 (patch training), the DataLoader collates scalar tensors
+        into shape (B,). We reduce to a scalar by taking the mean across the batch
+        — all patches in a batch share the same physics.
+        """
+        if tilt_min is not None and tilt_max is not None:
+            if hasattr(tilt_min, "numel") and tilt_min.numel() > 1:
+                tilt_min = tilt_min.float().mean()
+                tilt_max = tilt_max.float().mean()
+            self.update_angles(float(tilt_min), float(tilt_max))
+
+    def update_angles(self, tilt_min: float, tilt_max: float) -> None:
+        """Rebuild wedge masks in-place for a new tilt range.
+
+        All losses that hold a reference to this physics object will automatically
+        see the new mask on their next forward pass (they access buffers via
+        properties, not cached copies). EqLoss_icecream's _valid_k_sets cache
+        must be refreshed separately via loss.refresh_valid_k_sets().
+        """
+        if tilt_min == self._tilt_min and tilt_max == self._tilt_max:
+            return  # angles unchanged — skip expensive _build_masks
+
+        print(f"[physics] wedge update: [{self._tilt_min:.1f}, {self._tilt_max:.1f}] → [{tilt_min:.1f}, {tilt_max:.1f}]", flush=True)
+        new_mask, new_mask_ref = self._build_masks(tilt_max, tilt_min, self.mask.device)
+        self.mask.copy_(new_mask)
+        self.mask_ref.copy_(new_mask_ref)
+
+        self._tilt_min = float(tilt_min)
+        self._tilt_max = float(tilt_max)
 
     # ------------------------------------------------------------------
     # deepinv LinearPhysics interface

@@ -15,18 +15,19 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import deepinv as dinv
-import mrcfile
 import numpy as np
 import torch
 from deepinv.distributed import DistributedContext, distribute
 
-from equivariant.dataset_full import EIFullDataConfig, build_ei_full_dataloaders
+from equivariant.full.dataset_full import EIFullDataConfig, build_ei_full_dataloaders
 from equivariant.physics import MissingWedge
 from equivariant.transform import Rotate3D
-from equivariant.utils import fsc_shell, save_fsc_figure, save_resolution_histogram, save_slice_figure, GpuFSC
+from equivariant.losses import EqLoss, ObsLoss
+from equivariant.utils import GpuFSC, _read_mrc_vol_size, _read_pixel_sizes, fsc_shell, save_fsc_figure, save_resolution_histogram, save_slice_figure
 from toolscryo.trainer import BaseTrainer, ExponentialLRWithFloor
 from toolscryo.utils import dump_config_json, ensure_dir, seed_everything
 from toolscryo.plot_metrics import plot_metrics
+from icecream_orig.models import IceCreamUNetWrapper
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +71,6 @@ class RunEIFullConfig:
     # If True, disable the box window in ObsLoss and EqLoss (pass window=None).
     # Useful to test whether the window boundary at ±patch_size voxels causes artifacts.
     no_window: bool = False
-    loss_icecream: bool = False  # If True, use icecream's original loss implementation instead of deepinv Loss subclasses.
 
     # ── Distributed model tiling (mirrors supervised RunConfig) ─────────────
     patch_size: tuple[int, int, int] = (64, 64, 64)
@@ -90,6 +90,14 @@ class RunEIFullConfig:
     eval_interval: int = 1
     grad_accumulation_steps: int = 4    # accumulate over N volumes before each optimiser step
 
+    # ── Model selection ──────────────────────────────────────────────────────
+    # "deepinv" → dinv.models.UNet (BatchNorm3d, no dropout)
+    # "icecream" → icecream_orig UNet3D (no norm, dropout, exact icecream arch)
+    model_type: str = "icecream"
+    unet_f_maps: int = 64          # icecream UNet only: base feature-map count
+    unet_num_levels: int = 4       # icecream UNet only: encoder depth
+    unet_dropout: float = 0.1      # icecream UNet only: dropout probability
+
     # ── Evaluation ──────────────────────────────────────────────────────────
     # FSC(f(EVN), f(ODD)) at each eval_interval epoch.
     eval_fsc: bool = True
@@ -97,6 +105,7 @@ class RunEIFullConfig:
     # Fallback pixel size (Å/px) used when MRC header voxel_size == 0.
     # If None and header is zero, falls back to 1.0 (resolution in shells, not Å).
     pixel_size_angstrom: float | None = None
+
 
 
 # ---------------------------------------------------------------------------
@@ -134,11 +143,12 @@ class EIFullTrainer(BaseTrainer):
         )
 
     def forward_pass(self, x, y, physics, train):
-        """Compute f(ODD) and f(EVN) once; val is handled directly in compute_loss."""
+        """Compute f(EVN)=x_net and f(ODD)=y_net, matching val mode convention."""
         if not train:
             return torch.zeros_like(y), None
-        x_net = self.model_inference(y=y, physics=physics, x=x, train=True)  
-        y_net = self.model_inference(y=x, physics=physics, x=y, train=True)   
+        # x=EVN, y=ODD. model_inference(y=EVN) → f(EVN), model_inference(y=ODD) → f(ODD)
+        x_net = self.model_inference(y=x, physics=physics, x=y, train=True)  # f(EVN)
+        y_net = self.model_inference(y=y, physics=physics, x=x, train=True)  # f(ODD)
         # Cache outputs for train-slice visualisation in compute_loss.
         self._last_train_xnet = x_net
         self._last_train_ynet = y_net
@@ -176,7 +186,6 @@ class EIFullTrainer(BaseTrainer):
             self._val_resolutions.append(res)
 
             # Inference image: recon = 0.5 * (f(A(f(EVN))) + f(A(f(ODD))))
-            # Must be computed on ALL ranks (distributed model uses NCCL collectives).
             with torch.no_grad():
                 recon_t = 0.5 * (self.model(physics.A(f_evn_t)) + self.model(physics.A(f_odd_t)))
 
@@ -186,8 +195,8 @@ class EIFullTrainer(BaseTrainer):
                                 fsc_curve, k, res,
                                 f"Epoch {epoch} | Vol {vol_idx}",
                                 thr, vol_size=D, pixel_size=px)
-                self._save_vol_slices(images_dir, epoch, vol_idx, x, y, f_evn_t, f_odd_t)
                 recon_np = recon_t.squeeze().cpu().numpy()
+                recon_np = (recon_np - recon_np.mean()) / (recon_np.std() + 1e-8)
                 x_np = x.squeeze().cpu().numpy()
                 y_np = y.squeeze().cpu().numpy()
                 save_slice_figure(
@@ -204,21 +213,33 @@ class EIFullTrainer(BaseTrainer):
 
         result = super().compute_loss(physics, x, y, train=True, epoch=epoch, step=step)
 
-        # ── Train slice figures — one per volume per epoch (mirrors val) ──
-        train_images_dir = getattr(self, "_train_images_dir", None)
-        if train_images_dir is not None:
-            if epoch != getattr(self, "_train_slice_epoch", None):
-                self._train_slice_epoch = epoch
-                self._train_vol_idx = 0
-            vol_idx = self._train_vol_idx
-            self._save_vol_slices(
-                train_images_dir, epoch, vol_idx,
-                x, y,
-                self._last_train_ynet.detach(),
-                self._last_train_xnet.detach(),
-                prefix="Train ",
-            )
-            self._train_vol_idx += 1
+        # ── Train slice figures — one per volume per eval_interval epoch ──
+        # Track epoch/vol on all ranks so the vol_idx is consistent.
+        if epoch != getattr(self, "_train_slice_epoch", None):
+            self._train_slice_epoch = epoch
+            self._train_vol_idx = 0
+        vol_idx = self._train_vol_idx
+
+        if epoch % self.eval_interval == 0:
+            with torch.no_grad():
+                f_evn_t = self._last_train_xnet.detach()
+                f_odd_t = self._last_train_ynet.detach()
+                recon_t = 0.5 * (self.model(physics.A(f_evn_t)) + self.model(physics.A(f_odd_t)))
+
+            train_images_dir = getattr(self, "_train_images_dir", None)
+            if train_images_dir is not None:
+                recon_np = recon_t.squeeze().cpu().numpy()
+                recon_np = (recon_np - recon_np.mean()) / (recon_np.std() + 1e-8)
+                x_np = x.squeeze().cpu().numpy()
+                y_np = y.squeeze().cpu().numpy()
+                save_slice_figure(
+                    train_images_dir, epoch, vol_idx,
+                    [x_np, y_np, recon_np],
+                    labels=["EVN", "ODD", "recon"],
+                    title=f"Train Epoch {epoch} | Vol {vol_idx} — inference recon",
+                    fname=f"vol{vol_idx:02d}_recon.png",
+                )
+        self._train_vol_idx += 1
 
         return result
 
@@ -259,41 +280,11 @@ def _read_val_header_info(
     val_loader,
     fallback_pixel_size: float | None = None,
 ) -> tuple[list[float], int]:
-    """Read pixel sizes and count paired volumes from val dataset MRC headers.
-
-    Returns ``(val_pixel_sizes, n_paired_val)`` by opening only the header of
-    each EVN file — no voxel data loaded.
-
-    When the MRC header reports ``voxel_size == 0``, uses *fallback_pixel_size*
-    (from config ``pixel_size_angstrom``) if provided, else 1.0 (resolution
-    will be in shell units rather than Å).
-    """
+    """Read pixel sizes and count paired volumes from val dataset MRC headers."""
     val_ds = val_loader.dataset
-    val_pixel_sizes: list[float] = []
-    n_paired_val = 0
-    for evn_p, odd_p in zip(val_ds.evn_paths, val_ds.odd_paths):
-        with mrcfile.open(str(evn_p), permissive=True, mode="r") as mrc:
-            px = float(mrc.voxel_size.x)
-        if px <= 0.0:
-            px = fallback_pixel_size if fallback_pixel_size is not None else 1.0
-        val_pixel_sizes.append(px)
-        if odd_p is not None:
-            n_paired_val += 1
+    val_pixel_sizes = _read_pixel_sizes(val_ds.evn_paths, fallback=fallback_pixel_size)
+    n_paired_val = sum(1 for p in val_ds.odd_paths if p is not None)
     return val_pixel_sizes, n_paired_val
-
-
-def _resolve_vol_size(data_bundle, cfg: RunEIFullConfig) -> int:
-    """Return the spatial side length to use for MissingWedge physics.
-
-    Reads only the MRC header (nx, ny, nz) — no volume data loaded.
-    """
-    first_path = data_bundle.train_loader.dataset.evn_paths[0]
-    with mrcfile.open(str(first_path), permissive=True, mode="r") as mrc:
-        nx, ny, nz = int(mrc.header.nx), int(mrc.header.ny), int(mrc.header.nz)
-    # MRC stores (nz=Z, ny=Y, nx=X); min gives the smallest spatial dimension.
-    vol_size = min(nx, ny, nz)
-    print(f"[ei-full] auto vol_size={vol_size}  (from {first_path.name})", flush=True)
-    return vol_size
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +307,8 @@ def run_training(cfg: RunEIFullConfig) -> None:
         max_val_vols=int(cfg.max_val_vols),
         seed=int(cfg.seed),
         target_shape=cfg.target_shape,
+        fallback_tilt_min=cfg.tilt_min,
+        fallback_tilt_max=cfg.tilt_max,
     )
 
     with DistributedContext(seed=int(cfg.seed), seed_offset=False, cleanup=True) as ctx:
@@ -328,7 +321,9 @@ def run_training(cfg: RunEIFullConfig) -> None:
             vol_size = int(min(cfg.target_shape))
             print(f"[ei-full] target_shape={cfg.target_shape} → physics crop_size={vol_size}", flush=True)
         else:
-            vol_size = _resolve_vol_size(data_bundle, cfg)
+            first_path = data_bundle.train_loader.dataset.evn_paths[0]
+            vol_size = _read_mrc_vol_size(first_path)
+            print(f"[ei-full] auto vol_size={vol_size}  (from {first_path.name})", flush=True)
 
         # ── Physics ──────────────────────────────────────────────────────────
         # MissingWedge — volumes are always cubic (centre-cropped in _load_and_prepare).
@@ -348,19 +343,7 @@ def run_training(cfg: RunEIFullConfig) -> None:
         transform = Rotate3D(n_trans=1)
 
         # ── Model ────────────────────────────────────────────────────────────
-        # Exact same distribute pattern as supervised Method 1.
-        backbone = dinv.models.UNet(
-            in_channels=1,
-            out_channels=1,
-            scales=4,
-            residual=True,
-            batch_norm="biasfree",
-            dim=3,
-        ).to(ctx.device)
-
-        backbone = distribute(
-            backbone,
-            ctx,
+        distribute_kwargs = dict(
             patch_size=tuple(int(v) for v in cfg.patch_size),
             overlap=tuple(int(v) for v in cfg.overlap),
             tiling_dims=(-3, -2, -1),
@@ -368,11 +351,43 @@ def run_training(cfg: RunEIFullConfig) -> None:
             checkpoint_batches=cfg.checkpoint_batches,
         )
 
-        model = backbone  # EqLoss/ObsLoss call model(x) directly — no ArtifactRemoval wrapper
+        if cfg.model_type == "icecream":
+            from icecream_orig.models.unet3d_bf import UNet3D as _IceCreamUNet3D
+            _inner = _IceCreamUNet3D(
+                in_channels=1,
+                out_channels=1,
+                f_maps=int(cfg.unet_f_maps),
+                num_levels=int(cfg.unet_num_levels),
+                layer_order="cr",   # Conv + ReLU only — no normalisation layers
+                use_bias=False,
+                dropout_prob=float(cfg.unet_dropout),
+            ).to(ctx.device)
+            
+            backbone = distribute(
+                IceCreamUNetWrapper(_inner),
+                ctx,
+                type_object="denoiser",
+                **distribute_kwargs,
+            )
+        else:
+            backbone = distribute(
+                dinv.models.UNet(
+                    in_channels=1,
+                    out_channels=1,
+                    scales=4,
+                    residual=True,
+                    bias=False,
+                    dim=3,
+                ).to(ctx.device),
+                ctx,
+                **distribute_kwargs,
+            )
+
+        model = backbone
 
         if rank == 0:
             n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            print(f"[ei-full] model params={n_params:,}", flush=True)
+            print(f"[ei-full] model={cfg.model_type}  params={n_params:,}", flush=True)
             print(
                 f"[ei-full] vol_size={vol_size}  patch_size={cfg.patch_size}  "
                 f"overlap={cfg.overlap}  max_batch_size={cfg.max_batch_size}  "
@@ -381,14 +396,6 @@ def run_training(cfg: RunEIFullConfig) -> None:
             )
 
         # ── Losses ───────────────────────────────────────────────────────────
-        # ObsLoss and EqLoss are unchanged — they work at any spatial extent.
-        if bool(cfg.loss_icecream):
-            print("[loss] using icecream's original loss implementation (not deepinv Loss subclasses)", flush=True)
-            from equivariant.losses_icecream import ObsLoss, EqLoss
-        else:
-            print("[loss] using deepinv Loss subclasses ObsLoss and EqLoss", flush=True)
-            from equivariant.losses import ObsLoss, EqLoss
-
         losses = [
             ObsLoss(physics, weight=1.0,
                     use_fourier=bool(cfg.use_fourier), view_as_real=bool(cfg.view_as_real),
@@ -410,7 +417,7 @@ def run_training(cfg: RunEIFullConfig) -> None:
             physics=physics,
             optimizer=optimizer,
             train_dataloader=data_bundle.train_loader,
-            eval_dataloader=data_bundle.val_loader,
+            eval_dataloader=data_bundle.val_loader if len(data_bundle.val_loader.dataset) > 0 else None,
             epochs=int(cfg.num_epochs),
             losses=losses,
             metrics=[],                       # no paired GT → no PSNR
@@ -435,8 +442,9 @@ def run_training(cfg: RunEIFullConfig) -> None:
         trainer._train_images_dir = train_images_dir
         trainer._ckpt_dir         = ensure_dir(output_dir / "checkpoints") if rank == 0 else None
         trainer._scheduler        = scheduler
-        trainer._grad_accum_steps = max(1, int(cfg.grad_accumulation_steps))
-        trainer.ckp_interval      = int(cfg.ckp_interval)
+        trainer._grad_accum_steps    = max(1, int(cfg.grad_accumulation_steps))
+        trainer.ckp_interval         = int(cfg.ckp_interval)
+
 
         # ── FSC evaluation setup ──────────────────────────────────────────────
         # pixel sizes and threshold are set on ALL ranks so the distributed

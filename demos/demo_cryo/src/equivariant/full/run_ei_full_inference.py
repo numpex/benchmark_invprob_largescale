@@ -24,12 +24,18 @@ import mrcfile
 import numpy as np
 import torch
 from deepinv.distributed import DistributedContext, distribute
+from icecream_orig.models import IceCreamUNetWrapper
 
-from equivariant.dataset_full import CryoEIFullDataset, EIFullDataConfig, _make_full_loader
+from equivariant.full.dataset_full import CryoEIFullDataset, EIFullDataConfig, _make_full_loader
 from equivariant.physics import MissingWedge
 from equivariant.utils import (
     GpuFSC,
     _discover_pairs,
+    _find_mrc,
+    _read_mrc_vol_size,
+    _read_pixel_sizes,
+    _read_tlt,
+    _save_mrc,
     _split_pairs,
     fsc_shell,
     save_fsc_figure,
@@ -70,7 +76,14 @@ class RunEIInferenceConfig:
     wedge_low_support: float = 0.0
     ref_wedge_support: float = 1.0
 
-    # ── Model / tiling (must match training config) ─────────────────────────
+    # ── Model selection (must match training config) ─────────────────────────
+    # "deepinv" → dinv.models.UNet   "icecream" → icecream_orig UNet3D
+    model_type: str = "icecream"
+    unet_f_maps: int = 64          # icecream UNet only: base feature-map count
+    unet_num_levels: int = 4       # icecream UNet only: encoder depth
+    unet_dropout: float = 0.1      # icecream UNet only: dropout probability
+
+    # ── Tiling (must match training config) ─────────────────────────────────
     patch_size: tuple[int, int, int] = (64, 64, 64)
     overlap: tuple[int, int, int] = (8, 8, 8)
     max_batch_size: int | None = 2
@@ -89,18 +102,10 @@ class RunEIInferenceConfig:
     save_recon_mrc: bool = False        # save reconstructed volume as .mrc (default off)
 
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _find_mrc(tomo_dir: Path, *globs: str) -> Path | None:
-    """Return the first file matching any glob in *tomo_dir*, or None."""
-    for glob in globs:
-        matches = sorted(tomo_dir.glob(glob))
-        if matches:
-            return matches[0]
-    return None
-
 
 def _load_mrc_vol(path: Path, target_shape: tuple | None = None) -> np.ndarray:
     """Load MRC, reorder axes, optional resample, centre-crop to cube, normalise.
@@ -131,38 +136,6 @@ def _load_mrc_vol(path: Path, target_shape: tuple | None = None) -> np.ndarray:
     return vol.numpy()   # (D, H, W) float32
 
 
-def _save_mrc(path: Path, vol_dhw: np.ndarray) -> None:
-    """Save a (D, H, W) float32 numpy array as an MRC file (axis order: Z, Y, X)."""
-    # Reverse of moveaxis(0→2): move axis 2 back to position 0 → (Z, Y, X)
-    vol_zyx = np.moveaxis(vol_dhw.astype(np.float32), 2, 0)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with mrcfile.new(str(path), overwrite=True) as mrc:
-        mrc.set_data(vol_zyx)
-
-
-def _read_pixel_sizes(
-    evn_paths: list[Path],
-    fallback: float | None = None,
-) -> list[float]:
-    """Read voxel_size.x from each EVN MRC header (header-only, no data loaded)."""
-    sizes = []
-    for p in evn_paths:
-        with mrcfile.open(str(p), permissive=True, mode="r") as mrc:
-            px = float(mrc.voxel_size.x)
-        if px <= 0.0:
-            px = fallback if fallback is not None else 1.0
-        sizes.append(px)
-    return sizes
-
-
-def _resolve_vol_size_from_paths(evn_paths: list[Path]) -> int:
-    """Read the first MRC header to determine the cubic volume side length."""
-    with mrcfile.open(str(evn_paths[0]), permissive=True, mode="r") as mrc:
-        nx, ny, nz = int(mrc.header.nx), int(mrc.header.ny), int(mrc.header.nz)
-    vol_size = min(nx, ny, nz)
-    print(f"[inference] auto vol_size={vol_size}  (from {evn_paths[0].name})", flush=True)
-    return vol_size
-
 
 # ---------------------------------------------------------------------------
 # Inference entry-point
@@ -192,15 +165,35 @@ def run_inference(cfg: RunEIInferenceConfig) -> None:
     )
 
     input_dir = Path(cfg.input_dir)
-    all_evn, all_odd = _discover_pairs(input_dir, data_cfg.evn_glob, data_cfg.odd_glob)
-    _, _, val_evn, val_odd = _split_pairs(
-        all_evn, all_odd, cfg.max_infer_vols, cfg.seed, max_train=0
+    all_evn, all_odd, all_tlt = _discover_pairs(input_dir, data_cfg.evn_glob, data_cfg.odd_glob)
+
+    # Resolve tlt files → (tilt_min, tilt_max) or None.
+    all_tilt_ranges: list[tuple[float, float] | None] = []
+    for tlt_path in all_tlt:
+        if tlt_path is not None:
+            try:
+                all_tilt_ranges.append(_read_tlt(tlt_path))
+            except Exception as e:
+                print(f"[inference] WARNING: could not read {tlt_path}: {e}")
+                all_tilt_ranges.append(None)
+        else:
+            all_tilt_ranges.append(None)
+
+    _, _, val_evn, val_odd, _, val_tilt_ranges_split = _split_pairs(
+        all_evn, all_odd, cfg.max_infer_vols, cfg.seed, max_train=0,
+        extra=all_tilt_ranges,
     )
 
     if not val_evn:
         raise RuntimeError(f"No volumes found in {input_dir} — check input_dir and globs.")
 
-    val_ds = CryoEIFullDataset(val_evn, val_odd, target_shape=cfg.target_shape)
+    val_ds = CryoEIFullDataset(
+        val_evn, val_odd,
+        target_shape=cfg.target_shape,
+        tilt_ranges=val_tilt_ranges_split,
+        fallback_tilt_min=cfg.tilt_min,
+        fallback_tilt_max=cfg.tilt_max,
+    )
     val_loader = _make_full_loader(val_ds, shuffle=False, cfg=data_cfg)
 
     pixel_sizes = _read_pixel_sizes(val_evn, fallback=cfg.pixel_size_angstrom)
@@ -212,7 +205,8 @@ def run_inference(cfg: RunEIInferenceConfig) -> None:
         if cfg.target_shape is not None:
             vol_size = int(min(cfg.target_shape))
         else:
-            vol_size = _resolve_vol_size_from_paths(val_evn)
+            vol_size = _read_mrc_vol_size(val_evn[0])
+            print(f"[inference] auto vol_size={vol_size}  (from {val_evn[0].name})", flush=True)
 
         physics = MissingWedge(
             tilt_max=float(cfg.tilt_max),
@@ -226,24 +220,45 @@ def run_inference(cfg: RunEIInferenceConfig) -> None:
         ).to(ctx.device)
 
         # ── Model ─────────────────────────────────────────────────────────────
-        backbone = dinv.models.UNet(
-            in_channels=1,
-            out_channels=1,
-            scales=4,
-            residual=True,
-            batch_norm="biasfree",
-            dim=3,
-        ).to(ctx.device)
-
-        backbone = distribute(
-            backbone,
-            ctx,
+        distribute_kwargs = dict(
             patch_size=tuple(int(v) for v in cfg.patch_size),
             overlap=tuple(int(v) for v in cfg.overlap),
             tiling_dims=(-3, -2, -1),
             max_batch_size=cfg.max_batch_size,
             checkpoint_batches=cfg.checkpoint_batches,
         )
+
+        if cfg.model_type == "icecream":
+            from icecream_orig.models.unet3d_bf import UNet3D as _IceCreamUNet3D
+            _inner = _IceCreamUNet3D(
+                in_channels=1,
+                out_channels=1,
+                f_maps=int(cfg.unet_f_maps),
+                num_levels=int(cfg.unet_num_levels),
+                layer_order="cr",
+                use_bias=False,
+                dropout_prob=float(cfg.unet_dropout),
+            ).to(ctx.device)
+            backbone = distribute(
+                IceCreamUNetWrapper(_inner),
+                ctx,
+                type_object="denoiser",
+                **distribute_kwargs,
+            )
+        else:
+            backbone = distribute(
+                dinv.models.UNet(
+                    in_channels=1,
+                    out_channels=1,
+                    scales=4,
+                    residual=True,
+                    bias=False,
+                    dim=3,
+                ).to(ctx.device),
+                ctx,
+                **distribute_kwargs,
+            )
+
 
         # ── Load checkpoint ───────────────────────────────────────────────────
         ckpt_path = Path(cfg.checkpoint_path)
@@ -268,9 +283,22 @@ def run_inference(cfg: RunEIInferenceConfig) -> None:
         gpu_fsc: GpuFSC | None = None
         results: list[dict] = []
 
-        for vol_idx, (evn, odd) in enumerate(val_loader):
+        for vol_idx, (evn, odd, tilt_params) in enumerate(val_loader):
             evn = evn.to(ctx.device)   # (1, 1, D, H, W)
             odd = odd.to(ctx.device)
+
+            # Update physics from the per-volume tilt params (same dict format as training).
+            physics.update_parameters(
+                tilt_min=tilt_params["tilt_min"],
+                tilt_max=tilt_params["tilt_max"],
+            )
+            if rank == 0 and vol_idx == 0:
+                print(
+                    f"[physics] vol={vol_idx}  "
+                    f"tilt_min={float(tilt_params['tilt_min']):.1f}°  "
+                    f"tilt_max={float(tilt_params['tilt_max']):.1f}°",
+                    flush=True,
+                )
 
             with torch.no_grad():
                 f_evn_t = backbone(evn)
@@ -306,7 +334,6 @@ def run_inference(cfg: RunEIInferenceConfig) -> None:
             f_evn_np = f_evn_t.squeeze().cpu().numpy()
             f_odd_np = f_odd_t.squeeze().cpu().numpy()
             recon_np = recon_t.squeeze().cpu().numpy()
-
             # ── IsoNet / IceCream comparison volumes ──────────────────────────
             tomo_dir = val_ds.evn_paths[vol_idx].parent
             isonet_path   = _find_mrc(tomo_dir, cfg.isonet_glob, cfg.isonet_fallback_glob)

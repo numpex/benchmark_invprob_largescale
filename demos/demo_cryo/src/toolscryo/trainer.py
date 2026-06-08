@@ -152,7 +152,7 @@ class BaseTrainer(dinv.Trainer):
             self._epoch_bwd_time       += p_bwd.elapsed_s
 
             # ── Per-step CSV logging (rank 0 only) ───────────────────────
-            if self.verbose:
+            if getattr(self, "_is_rank0", self.verbose):
                 metrics_dir = getattr(self, "_metrics_dir", None)
                 if metrics_dir is not None:
                     self._global_step = getattr(self, "_global_step", 0) + 1
@@ -178,7 +178,7 @@ class BaseTrainer(dinv.Trainer):
 
 
         # ── Rank-0 only below ─────────────────────────────────────────────
-        if not self.verbose:
+        if not getattr(self, "_is_rank0", self.verbose):
             return
 
         metrics_dir = getattr(self, "_metrics_dir", None)
@@ -197,25 +197,28 @@ class BaseTrainer(dinv.Trainer):
             t_loss    = getattr(self, "_epoch_fwd_loss_time",  0.0)
             t_bwd     = getattr(self, "_epoch_bwd_time",       0.0)
             t_compute = t_model + t_loss + t_bwd
-            alloc_gb  = torch.cuda.max_memory_allocated() / 1024**3
-            total_gb  = torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory / 1024**3
-            print(
-                f"[train ep={step}]  "
-                f"total={t_total:.1f}s  "
-                f"avg_compute/img={t_compute/n:.2f}s "
-                f"(model={t_model/n:.2f}s  loss={t_loss/n:.2f}s  bwd={t_bwd/n:.2f}s)  "
-                f"avg_total/img={t_total/n:.2f}s  "
-                f"max_gpu={alloc_gb:.2f}/{total_gb:.1f} GB  "
-                f"n={n}",
-                flush=True,
-            )
+            if getattr(self, "_log_timing", True):
+                alloc_gb  = torch.cuda.max_memory_allocated() / 1024**3
+                total_gb  = torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory / 1024**3
+                print(
+                    f"[train ep={step}]  "
+                    f"total={t_total:.1f}s  "
+                    f"avg_compute/img={t_compute/n:.2f}s "
+                    f"(model={t_model/n:.2f}s  loss={t_loss/n:.2f}s  bwd={t_bwd/n:.2f}s)  "
+                    f"avg_total/img={t_total/n:.2f}s  "
+                    f"max_gpu={alloc_gb:.2f}/{total_gb:.1f} GB  "
+                    f"n={n}",
+                    flush=True,
+                )
             torch.cuda.reset_peak_memory_stats()
             self._val_start = time.perf_counter()
             self._val_batch_count = 0
         else:
             n_val = max(1, getattr(self, "_val_batch_count", 1))
             t_val = time.perf_counter() - getattr(self, "_val_start", time.perf_counter())
-            print(f"[time] val   ep={step}  total={t_val:.1f}s  per_img={t_val/n_val:.2f}s  n={n_val}", flush=True)
+            n_log = getattr(self, "_log_every_n_epochs", 1)
+            if step % n_log == 0:
+                print(f"[time] val   ep={step}  total={t_val:.1f}s  per_img={t_val/n_val:.2f}s  n={n_val}", flush=True)
             self._val_start = None
 
         if train:
