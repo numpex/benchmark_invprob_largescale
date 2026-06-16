@@ -26,9 +26,9 @@ class BaseData(ABC):
         """Returns a batch of data with parameters specified in the data_config."""
         raise NotImplementedError
 
-    def download(self) -> Path:
+    def download(self, data_path: str | Path = Path("./data")) -> Path:
         """Downloads the dataset if necessary."""
-        return Path()
+        return Path(data_path)
 
 
 class DeepinvData(BaseData, ABC):
@@ -50,17 +50,17 @@ class DeepinvData(BaseData, ABC):
                 f"{self.__class__.__name__} only supports 2D data, "
                 f"got size={data_config.size}"
             )
-        path = self._ensure_downloaded(data_config.data_path)
+        path = self.download(data_config.data_path)
         img = deepinv.utils.load_image(
             path,
             img_size=data_config.size,
-            device=torch.device(data_config.device),
+            device=torch.device(data_config.device) if isinstance(data_config.device, str) else data_config.device,
             dtype=data_config.data_type,
             resize_mode="resize",
         )
         return {"data": img.repeat(data_config.batch_size, 1, 1, 1)}
 
-    def _ensure_downloaded(self, data_path: str | Path) -> Path:
+    def download(self, data_path: str | Path = Path("./data")) -> Path:
         p = Path(data_path) / self.image_name
         if not p.exists():
             deepinv.utils.download_example(self.image_name, Path(data_path))
