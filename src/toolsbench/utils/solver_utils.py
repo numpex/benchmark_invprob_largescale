@@ -306,6 +306,57 @@ def seed_everything(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def build_solver_name(
+    name_prefix: str,
+    slurm_nodes: int,
+    slurm_ntasks_per_node: int,
+    torchrun_nproc_per_node: int,
+    distributed_mode: bool,
+) -> str:
+    """Build a unique solver run name with timestamp and parallelism suffix."""
+    import os
+    from datetime import datetime
+
+    ts = datetime.now().strftime("_%Y%m%d_%H%M%S_")
+    if slurm_ntasks_per_node > 1:
+        name = name_prefix + ts + f"{slurm_nodes}n{slurm_ntasks_per_node}t"
+    elif torchrun_nproc_per_node > 1:
+        name = name_prefix + ts + f"torchrun_{torchrun_nproc_per_node}proc"
+    else:
+        name = name_prefix + ts + "_single"
+    if distributed_mode:
+        name = name + f"_rank{int(os.environ.get('RANK', 0))}"
+    return name
+
+
+def get_device_from_context(ctx) -> torch.device:
+    """Return ctx.device if a distributed context is provided, otherwise auto-detect."""
+    if ctx is not None:
+        return ctx.device
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def sync_and_barrier(device: torch.device, ctx) -> None:
+    """Synchronize CUDA ops and issue a distributed barrier when in distributed mode."""
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    if ctx is not None:
+        ctx.barrier()
+
+
+def distributed_callback_iter(cb, distributed_mode: bool, device: torch.device, ctx):
+    """Yield while the benchopt callback returns True, broadcasting the decision in distributed mode."""
+    while True:
+        keep_going = cb()
+        if distributed_mode and ctx is not None:
+            decision = torch.tensor([float(keep_going)], device=device)
+            ctx.broadcast(decision, src=0)
+            keep_going = bool(decision.item())
+        if not keep_going:
+            return
+        yield
+
+
 def setup_distributed_env() -> int:
     """Initialise the distributed environment and return ``world_size``.
 
