@@ -6,31 +6,39 @@ general:
   run_name: demo-cryo-ei-patch
   execution_mode: submitit   # change to 'local' to run locally
   max_train_vols: 4         # null = all non-val volumes
-  max_val_vols: 2
+  max_val_vols: 4
   seed: 0
 
 training:
-  num_epochs: 500
+  num_epochs: 100
   learning_rate: 1.0e-4
   scheduler_gamma: 1
   scheduler_lr_min: 5.0e-6
   grad_clip: 1.0
-  ckp_interval: 2000
+  ckp_interval: 5000
   eval_interval: 500
   grad_accumulation_steps: 1
-  log_every_n_epochs: 100   # print loss summary every N epochs
+  log_every_n_epochs: 500   # print loss summary every N epochs
   infer_stride: 36         # icecream default stride for sliding-window inference
   infer_batch_size: 0      # 0 = same as training batch_size
   infer_downsample: 1      # spatial downsample factor before inference (1 = no downsampling)
   infer_train: true        # run inference on training volumes
   infer_val: true          # run inference on validation volumes
   save_mrc: false          # save reconstruction as .mrc file
-  unet_residual: true     # residual connections in UNet (icecream default: false)
+  use_mixed_precision: true  # true = fp16 forward + scaled backward (~2x faster, matches icecream default)
+  model_type: unet         # "unet" | "drunet"
+  unet_f_maps: 64          # base channel width (shared: unet 64→128→256→512; drunet same)
+  # unet params
+  unet_num_levels: 4
+  unet_dropout: 0.1
+  # drunet params
+  drunet_nb: 4
+  drunet_sigma: 0.0
 
 patch:
-  crop_size: 72              # cubic patch side length (icecream default)
+  crop_size: 72             # cubic patch side length (icecream default)
   n_crops_per_vol: 8        # virtual crops per volume per epoch
-  batch_size: 8
+  batch_size: 4
   num_workers: 1
   pin_memory: true
   prefetch_factor: 1
@@ -56,9 +64,9 @@ equivariant:
 slurm:
   job_name: demo-cryo-ei-patch
   nodes: 1
-  gpus_per_node: 1
-  ntasks_per_node: 1
-  cpus_per_task: 24
+  gpus_per_node: 2
+  ntasks_per_node: 2   # one task per GPU 
+  cpus_per_task: 24    
   time: "02:00:00"
   account: "fio@h100"
   constraint: "h100"

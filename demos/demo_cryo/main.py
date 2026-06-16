@@ -281,10 +281,13 @@ def _build_equivariant_full_config(conf: dict):
         grad_accumulation_steps=int(
             training.get("grad_accumulation_steps", default.grad_accumulation_steps)
         ),
+        use_mixed_precision=bool(training.get("use_mixed_precision", default.use_mixed_precision)),
         model_type=str(training.get("model_type", default.model_type)),
         unet_f_maps=int(training.get("unet_f_maps", default.unet_f_maps)),
         unet_num_levels=int(training.get("unet_num_levels", default.unet_num_levels)),
         unet_dropout=float(training.get("unet_dropout", default.unet_dropout)),
+        drunet_nb=int(training.get("drunet_nb", default.drunet_nb)),
+        drunet_sigma=float(training.get("drunet_sigma", default.drunet_sigma)),
         eq_use_direct=bool(equivariant.get("eq_use_direct", default.eq_use_direct)),
         no_window=bool(equivariant.get("no_window", default.no_window)),
         use_fourier=bool(equivariant.get("use_fourier", default.use_fourier)),
@@ -298,6 +301,7 @@ def _build_equivariant_full_config(conf: dict):
             if equivariant.get("pixel_size_angstrom") is not None
             else None
         ),
+        pretrained_ckpt=training.get("pretrained_ckpt", default.pretrained_ckpt) or None,
     )
 
 
@@ -355,11 +359,15 @@ def _build_equivariant_patch_config(conf: dict):
         infer_train=bool(training.get("infer_train", default.infer_train)),
         infer_val=bool(training.get("infer_val", default.infer_val)),
         save_mrc=bool(training.get("save_mrc", default.save_mrc)),
+        use_mixed_precision=bool(training.get("use_mixed_precision", default.use_mixed_precision)),
         model_type=str(training.get("model_type", default.model_type)),
-        unet_residual=bool(training.get("unet_residual", default.unet_residual)),
         unet_f_maps=int(training.get("unet_f_maps", default.unet_f_maps)),
         unet_num_levels=int(training.get("unet_num_levels", default.unet_num_levels)),
         unet_dropout=float(training.get("unet_dropout", default.unet_dropout)),
+        drunet_nb=int(training.get("drunet_nb", default.drunet_nb)),
+        drunet_sigma=float(training.get("drunet_sigma", default.drunet_sigma)),
+        eval_fsc=bool(equivariant.get("eval_fsc", default.eval_fsc)),
+        fsc_threshold=float(equivariant.get("fsc_threshold", default.fsc_threshold)),
         pixel_size_angstrom=(
             float(equivariant["pixel_size_angstrom"])
             if equivariant.get("pixel_size_angstrom") is not None
@@ -407,6 +415,8 @@ def _build_ei_inference_config(conf: dict):
         unet_f_maps=int(inference.get("unet_f_maps", default.unet_f_maps)),
         unet_num_levels=int(inference.get("unet_num_levels", default.unet_num_levels)),
         unet_dropout=float(inference.get("unet_dropout", default.unet_dropout)),
+        drunet_nb=int(inference.get("drunet_nb", default.drunet_nb)),
+        drunet_sigma=float(inference.get("drunet_sigma", default.drunet_sigma)),
         fsc_threshold=float(inference.get("fsc_threshold", default.fsc_threshold)),
         pixel_size_angstrom=(
             float(inference["pixel_size_angstrom"])

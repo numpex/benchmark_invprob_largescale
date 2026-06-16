@@ -58,20 +58,10 @@ class CryoDataset(Dataset):
 
         # DeepInv convention: x = ground truth, y = measurement (network input)
         # x = icecream target, y = corrected input
-        y = torch.from_numpy(
-            np.array(
-                mrcfile.open(str(inp_path), permissive=True).data, dtype=np.float32
-            )
-        ).unsqueeze(
-            0
-        )  # (1, D, H, W)  corrected → network input
-        x = torch.from_numpy(
-            np.array(
-                mrcfile.open(str(tgt_path), permissive=True).data, dtype=np.float32
-            )
-        ).unsqueeze(
-            0
-        )  # (1, D, H, W)  icecream → ground truth
+        with mrcfile.open(str(inp_path), permissive=True, mode="r") as mrc:
+            y = torch.from_numpy(np.array(mrc.data, dtype=np.float32)).unsqueeze(0)  # (1, D, H, W)
+        with mrcfile.open(str(tgt_path), permissive=True, mode="r") as mrc:
+            x = torch.from_numpy(np.array(mrc.data, dtype=np.float32)).unsqueeze(0)  # (1, D, H, W)
 
         if self.target_shape is not None:
             # interpolate expects (B, C, D, H, W) → add batch dim, then remove

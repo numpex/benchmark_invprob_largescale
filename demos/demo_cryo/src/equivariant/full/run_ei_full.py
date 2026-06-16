@@ -14,7 +14,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import deepinv as dinv
 import numpy as np
 import torch
 from deepinv.distributed import DistributedContext, distribute
@@ -23,11 +22,10 @@ from equivariant.full.dataset_full import EIFullDataConfig, build_ei_full_datalo
 from equivariant.physics import MissingWedge
 from equivariant.transform import Rotate3D
 from equivariant.losses import EqLoss, ObsLoss
-from equivariant.utils import GpuFSC, _read_mrc_vol_size, _read_pixel_sizes, fsc_shell, save_fsc_figure, save_resolution_histogram, save_slice_figure
-from toolscryo.trainer import BaseTrainer, ExponentialLRWithFloor
-from toolscryo.utils import dump_config_json, ensure_dir, seed_everything
+from equivariant.utils import GpuFSC, _read_mrc_vol_size, _read_pixel_sizes, fsc_shell, half_set_recon, save_fsc_figure, save_resolution_histogram, save_slice_figure
+from toolscryo.trainer import EIBaseTrainer, ExponentialLRWithFloor
+from toolscryo.utils import build_ei_model, dump_config_json, ensure_dir, seed_everything
 from toolscryo.plot_metrics import plot_metrics
-from icecream_orig.models import IceCreamUNetWrapper
 
 
 # ---------------------------------------------------------------------------
@@ -90,13 +88,18 @@ class RunEIFullConfig:
     eval_interval: int = 1
     grad_accumulation_steps: int = 4    # accumulate over N volumes before each optimiser step
 
+    # ── Mixed precision ──────────────────────────────────────────────────────
+    use_mixed_precision: bool = False  # fp16 forward + scaled backward (~2x faster, same as icecream default)
+
     # ── Model selection ──────────────────────────────────────────────────────
-    # "deepinv" → dinv.models.UNet (BatchNorm3d, no dropout)
-    # "icecream" → icecream_orig UNet3D (no norm, dropout, exact icecream arch)
-    model_type: str = "icecream"
-    unet_f_maps: int = 64          # icecream UNet only: base feature-map count
-    unet_num_levels: int = 4       # icecream UNet only: encoder depth
-    unet_dropout: float = 0.1      # icecream UNet only: dropout probability
+    # "unet"   → icecream_orig UNet3D (no norm, dropout, exact icecream arch)
+    # "drunet" → dinv.models.DRUNet  (residual U-Net with noise-level conditioning)
+    model_type: str = "unet"
+    unet_f_maps: int = 64          # unet only: base feature-map count
+    unet_num_levels: int = 4       # unet only: encoder depth
+    unet_dropout: float = 0.1      # unet only: dropout probability
+    drunet_nb: int = 4             # drunet only: residual blocks per scale
+    drunet_sigma: float = 0.0      # drunet only: fixed noise-level injected into the noise map
 
     # ── Evaluation ──────────────────────────────────────────────────────────
     # FSC(f(EVN), f(ODD)) at each eval_interval epoch.
@@ -106,14 +109,19 @@ class RunEIFullConfig:
     # If None and header is zero, falls back to 1.0 (resolution in shells, not Å).
     pixel_size_angstrom: float | None = None
 
+    # ── Pretrained init ──────────────────────────────────────────────────────
+    # Path to a local .pth checkpoint whose weights are loaded before training
+    # begins.  Set to None (default) to train from a random initialisation.
+    pretrained_ckpt: str | None = None
+
 
 
 # ---------------------------------------------------------------------------
 # Trainer subclass — adds optional GT evaluator PSNR hook
 # ---------------------------------------------------------------------------
 
-class EIFullTrainer(BaseTrainer):
-    """BaseTrainer subclass for self-supervised EI training on full volumes.
+class EIFullTrainer(EIBaseTrainer):
+    """EIBaseTrainer subclass for self-supervised EI training on full volumes.
 
     Overrides the val step to run FSC(f(EVN), f(ODD)) directly inside
     ``compute_loss`` as deepinv iterates the val loader — avoiding the
@@ -127,32 +135,6 @@ class EIFullTrainer(BaseTrainer):
 
     _main_metric = "fsc_res_angstrom"
     _main_metric_higher_is_better = False  # lower resolution value = better
-
-    def _save_vol_slices(self, images_dir, epoch, vol_idx, x, y, f_evn_t, f_odd_t, prefix=""):
-        """Save raw slice figures for one volume (shared by train and val)."""
-        evn_np = x.squeeze().cpu().numpy()
-        odd_np = y.squeeze().cpu().numpy()
-        f_evn  = f_evn_t.squeeze().cpu().numpy()
-        f_odd  = f_odd_t.squeeze().cpu().numpy()
-        save_slice_figure(
-            images_dir, epoch, vol_idx,
-            [evn_np, odd_np, f_evn, f_odd],
-            labels=["Input EVN", "Input ODD", "f(EVN)", "f(ODD)"],
-            title=f"{prefix}Epoch {epoch} | Vol {vol_idx} — raw",
-            fname=f"vol{vol_idx:02d}_raw.png",
-        )
-
-    def forward_pass(self, x, y, physics, train):
-        """Compute f(EVN)=x_net and f(ODD)=y_net, matching val mode convention."""
-        if not train:
-            return torch.zeros_like(y), None
-        # x=EVN, y=ODD. model_inference(y=EVN) → f(EVN), model_inference(y=ODD) → f(ODD)
-        x_net = self.model_inference(y=x, physics=physics, x=y, train=True)  # f(EVN)
-        y_net = self.model_inference(y=y, physics=physics, x=x, train=True)  # f(ODD)
-        # Cache outputs for train-slice visualisation in compute_loss.
-        self._last_train_xnet = x_net
-        self._last_train_ynet = y_net
-        return x_net, y_net
 
     def compute_loss(self, physics, x, y, train=True, epoch=None, step=False):  # type: ignore[override]
         if not train:
@@ -187,7 +169,7 @@ class EIFullTrainer(BaseTrainer):
 
             # Inference image: recon = 0.5 * (f(A(f(EVN))) + f(A(f(ODD))))
             with torch.no_grad():
-                recon_t = 0.5 * (self.model(physics.A(f_evn_t)) + self.model(physics.A(f_odd_t)))
+                recon_t = half_set_recon(self.model, physics, f_evn_t, f_odd_t)
 
             images_dir = getattr(self, "_images_dir", None)
             if images_dir is not None:
@@ -224,7 +206,7 @@ class EIFullTrainer(BaseTrainer):
             with torch.no_grad():
                 f_evn_t = self._last_train_xnet.detach()
                 f_odd_t = self._last_train_ynet.detach()
-                recon_t = 0.5 * (self.model(physics.A(f_evn_t)) + self.model(physics.A(f_odd_t)))
+                recon_t = half_set_recon(self.model, physics, f_evn_t, f_odd_t)
 
             train_images_dir = getattr(self, "_train_images_dir", None)
             if train_images_dir is not None:
@@ -351,43 +333,28 @@ def run_training(cfg: RunEIFullConfig) -> None:
             checkpoint_batches=cfg.checkpoint_batches,
         )
 
-        if cfg.model_type == "icecream":
-            from icecream_orig.models.unet3d_bf import UNet3D as _IceCreamUNet3D
-            _inner = _IceCreamUNet3D(
-                in_channels=1,
-                out_channels=1,
-                f_maps=int(cfg.unet_f_maps),
-                num_levels=int(cfg.unet_num_levels),
-                layer_order="cr",   # Conv + ReLU only — no normalisation layers
-                use_bias=False,
-                dropout_prob=float(cfg.unet_dropout),
-            ).to(ctx.device)
-            
-            backbone = distribute(
-                IceCreamUNetWrapper(_inner),
-                ctx,
-                type_object="denoiser",
-                **distribute_kwargs,
-            )
-        else:
-            backbone = distribute(
-                dinv.models.UNet(
-                    in_channels=1,
-                    out_channels=1,
-                    scales=4,
-                    residual=True,
-                    bias=False,
-                    dim=3,
-                ).to(ctx.device),
-                ctx,
-                **distribute_kwargs,
-            )
+        wrapper, model_info = build_ei_model(
+            cfg.model_type, cfg.unet_f_maps, cfg.unet_num_levels, cfg.unet_dropout,
+            cfg.drunet_nb, cfg.drunet_sigma, ctx.device,
+        )
 
-        model = backbone
+        # ── Load pretrained weights before distributing ──────────────────────
+        if cfg.pretrained_ckpt is not None:
+            ckpt = torch.load(cfg.pretrained_ckpt, map_location=ctx.device, weights_only=True)
+            state = ckpt.get("model_state_dict") or ckpt.get("state_dict") or ckpt
+            if any(k.startswith("processor.") for k in state):
+                state = {k.removeprefix("processor."): v for k, v in state.items()}
+                if rank == 0:
+                    print("[ei-full] stripped 'processor.' prefix from checkpoint keys (old format)", flush=True)
+            wrapper.load_state_dict(state, strict=True)
+            if rank == 0:
+                print(f"[ei-full] loaded pretrained weights from {cfg.pretrained_ckpt}", flush=True)
+
+        model = distribute(wrapper, ctx, type_object="denoiser", **distribute_kwargs)
 
         if rank == 0:
             n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            print(f"[ei-full] model={cfg.model_type}  params={n_params:,}", flush=True)
+            print(f"[ei-full] model={model_info}  params={n_params:,}", flush=True)
             print(
                 f"[ei-full] vol_size={vol_size}  patch_size={cfg.patch_size}  "
                 f"overlap={cfg.overlap}  max_batch_size={cfg.max_batch_size}  "
@@ -445,6 +412,11 @@ def run_training(cfg: RunEIFullConfig) -> None:
         trainer._grad_accum_steps    = max(1, int(cfg.grad_accumulation_steps))
         trainer.ckp_interval         = int(cfg.ckp_interval)
 
+        if cfg.use_mixed_precision:
+            trainer._enable_mixed_precision()
+            if rank == 0:
+                print("[ei-full] mixed precision enabled", flush=True)
+
 
         # ── FSC evaluation setup ──────────────────────────────────────────────
         # pixel sizes and threshold are set on ALL ranks so the distributed
@@ -477,7 +449,7 @@ def run_training(cfg: RunEIFullConfig) -> None:
             torch.save(
                 {
                     "epoch": cfg.num_epochs,
-                    "model_state_dict": trainer.model.state_dict(),
+                    "model_state_dict": trainer.model.processor.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                 },
                 ckpt_path,

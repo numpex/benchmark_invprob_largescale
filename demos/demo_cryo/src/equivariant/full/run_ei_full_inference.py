@@ -19,12 +19,10 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import deepinv as dinv
 import mrcfile
 import numpy as np
 import torch
 from deepinv.distributed import DistributedContext, distribute
-from icecream_orig.models import IceCreamUNetWrapper
 
 from equivariant.full.dataset_full import CryoEIFullDataset, EIFullDataConfig, _make_full_loader
 from equivariant.physics import MissingWedge
@@ -34,7 +32,7 @@ from equivariant.utils import (
     _find_mrc,
     _read_mrc_vol_size,
     _read_pixel_sizes,
-    _read_tlt,
+    _resolve_tlt_ranges,
     _save_mrc,
     _split_pairs,
     fsc_shell,
@@ -43,7 +41,7 @@ from equivariant.utils import (
     save_slice_figure,
     save_slice_stats_csv,
 )
-from toolscryo.utils import dump_config_json, ensure_dir, seed_everything
+from toolscryo.utils import build_ei_model, dump_config_json, ensure_dir, seed_everything
 
 
 # ---------------------------------------------------------------------------
@@ -77,11 +75,13 @@ class RunEIInferenceConfig:
     ref_wedge_support: float = 1.0
 
     # ── Model selection (must match training config) ─────────────────────────
-    # "deepinv" → dinv.models.UNet   "icecream" → icecream_orig UNet3D
-    model_type: str = "icecream"
-    unet_f_maps: int = 64          # icecream UNet only: base feature-map count
-    unet_num_levels: int = 4       # icecream UNet only: encoder depth
-    unet_dropout: float = 0.1      # icecream UNet only: dropout probability
+    # "unet"   → icecream_orig UNet3D   "drunet" → dinv.models.DRUNet
+    model_type: str = "unet"
+    unet_f_maps: int = 64          # unet only: base feature-map count
+    unet_num_levels: int = 4       # unet only: encoder depth
+    unet_dropout: float = 0.1      # unet only: dropout probability
+    drunet_nb: int = 4             # drunet only: residual blocks per scale
+    drunet_sigma: float = 0.0      # drunet only: fixed noise-level injected into the noise map
 
     # ── Tiling (must match training config) ─────────────────────────────────
     patch_size: tuple[int, int, int] = (64, 64, 64)
@@ -168,16 +168,7 @@ def run_inference(cfg: RunEIInferenceConfig) -> None:
     all_evn, all_odd, all_tlt = _discover_pairs(input_dir, data_cfg.evn_glob, data_cfg.odd_glob)
 
     # Resolve tlt files → (tilt_min, tilt_max) or None.
-    all_tilt_ranges: list[tuple[float, float] | None] = []
-    for tlt_path in all_tlt:
-        if tlt_path is not None:
-            try:
-                all_tilt_ranges.append(_read_tlt(tlt_path))
-            except Exception as e:
-                print(f"[inference] WARNING: could not read {tlt_path}: {e}")
-                all_tilt_ranges.append(None)
-        else:
-            all_tilt_ranges.append(None)
+    all_tilt_ranges = _resolve_tlt_ranges(all_tlt)
 
     _, _, val_evn, val_odd, _, val_tilt_ranges_split = _split_pairs(
         all_evn, all_odd, cfg.max_infer_vols, cfg.seed, max_train=0,
@@ -228,53 +219,29 @@ def run_inference(cfg: RunEIInferenceConfig) -> None:
             checkpoint_batches=cfg.checkpoint_batches,
         )
 
-        if cfg.model_type == "icecream":
-            from icecream_orig.models.unet3d_bf import UNet3D as _IceCreamUNet3D
-            _inner = _IceCreamUNet3D(
-                in_channels=1,
-                out_channels=1,
-                f_maps=int(cfg.unet_f_maps),
-                num_levels=int(cfg.unet_num_levels),
-                layer_order="cr",
-                use_bias=False,
-                dropout_prob=float(cfg.unet_dropout),
-            ).to(ctx.device)
-            backbone = distribute(
-                IceCreamUNetWrapper(_inner),
-                ctx,
-                type_object="denoiser",
-                **distribute_kwargs,
-            )
-        else:
-            backbone = distribute(
-                dinv.models.UNet(
-                    in_channels=1,
-                    out_channels=1,
-                    scales=4,
-                    residual=True,
-                    bias=False,
-                    dim=3,
-                ).to(ctx.device),
-                ctx,
-                **distribute_kwargs,
-            )
-
+        wrapper, model_info = build_ei_model(
+            cfg.model_type, cfg.unet_f_maps, cfg.unet_num_levels, cfg.unet_dropout,
+            cfg.drunet_nb, cfg.drunet_sigma, ctx.device,
+        )
+        backbone = distribute(wrapper, ctx, type_object="denoiser", **distribute_kwargs)
 
         # ── Load checkpoint ───────────────────────────────────────────────────
         ckpt_path = Path(cfg.checkpoint_path)
         if not ckpt_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
-        ckpt = torch.load(str(ckpt_path), map_location=ctx.device)
-        state = ckpt.get("model_state_dict", ckpt)
-        backbone.load_state_dict(state)
+        ckpt = torch.load(str(ckpt_path), map_location=ctx.device, weights_only=True)
+        state = ckpt.get("model_state_dict") or ckpt.get("state_dict") or ckpt
+        # Strip "processor." prefix saved by old runs that checkpointed the distribute wrapper.
+        state = {(k[len("processor."):] if k.startswith("processor.") else k): v for k, v in state.items()}
+        backbone.processor.load_state_dict(state, strict=True)
         backbone.eval()
 
         if rank == 0:
             n_params = sum(p.numel() for p in backbone.parameters())
             print(
                 f"[inference] loaded checkpoint {ckpt_path.name}  "
-                f"params={n_params:,}  vol_size={vol_size}",
+                f"model={model_info}  params={n_params:,}  vol_size={vol_size}",
                 flush=True,
             )
 

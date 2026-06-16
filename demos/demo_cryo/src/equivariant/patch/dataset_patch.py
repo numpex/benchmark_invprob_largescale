@@ -10,12 +10,15 @@ Differences from the full-volume variant:
   - Patches are random cubic crops of side ``crop_size`` extracted from the same
     coordinates in both EVN and ODD; this preserves the cross half-set pairing.
   - ``__len__`` = len(evn_paths) * n_crops_per_vol (virtual epoch length).
-  - Volumes are loaded lazily on each __getitem__ call (no in-memory caching).
+  - Volumes are memory-mapped: only the OS pages covering each requested crop
+    (~1–3 MB) are read from disk per __getitem__ call.  The full volume is
+    never copied into RAM unless explicitly requested (e.g. inference).
 """
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import mrcfile
@@ -23,7 +26,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from equivariant.utils import EIDataBundle, _discover_pairs, _read_tlt, _split_pairs
+from equivariant.utils import EIDataBundle, _discover_pairs, _resolve_tlt_ranges, _split_pairs
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +56,68 @@ class EIPatchDataConfig:
 
 
 # ---------------------------------------------------------------------------
+# Per-process mmap cache
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=64)
+def _open_mrc_mmap(path_str: str) -> tuple:
+    """Open an MRC file as a memory-mapped (D, H, W) array; cache the handle.
+
+    Returns ``(mrc_handle, vol_ndarray)`` where ``vol_ndarray`` is a strided
+    float32 view of shape (D, H, W) = (Y, X, Z) over the on-disk data.
+    The OS reads only the pages corresponding to whatever region is sliced —
+    the full volume is never copied into RAM by this call alone.
+
+    Both objects are cached so the mapping stays alive across calls and file
+    descriptors are not repeatedly opened.  The cache is per-process, so each
+    DataLoader worker maintains its own independent cache.
+    """
+    mrc = mrcfile.mmap(path_str, permissive=True, mode='r')
+    data = mrc.data  # numpy.memmap, shape (Z, Y, X)
+    if data.dtype != np.float32:
+        # Uncommon: force conversion only when needed (reads whole volume once)
+        data = data.astype(np.float32)
+    # moveaxis creates a non-contiguous view — no data pages are read here
+    vol = np.moveaxis(data, 0, 2)   # (Z, Y, X) → (Y, X, Z) = (D, H, W)
+    return mrc, vol
+
+
+# ---------------------------------------------------------------------------
+# Lazy volume list — inference compatibility
+# ---------------------------------------------------------------------------
+
+class _LazyVolList:
+    """List-like proxy that loads MRC volumes as CPU torch.Tensor on demand.
+
+    Replaces the old eager ``evn_vols`` / ``odd_vols`` lists while keeping
+    the same ``ds.evn_vols[i]`` interface expected by the inference loop in
+    run_ei_patch.py.  Each ``__getitem__`` call loads the full volume into RAM
+    (acceptable for inference, which accesses each volume once).
+    """
+
+    def __init__(self, paths: list[Path | None], normalize: bool) -> None:
+        self._paths = paths
+        self._normalize = normalize
+
+    def __len__(self) -> int:
+        return len(self._paths)
+
+    def __getitem__(self, i: int) -> torch.Tensor | None:
+        p = self._paths[i]
+        if p is None:
+            return None
+        _, vol_np = _open_mrc_mmap(str(p))
+        vol_t = torch.from_numpy(np.ascontiguousarray(vol_np))  # reads all pages
+        if self._normalize:
+            vol_t = (vol_t - vol_t.mean()) / (vol_t.std() + 1e-8)
+        return vol_t
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+
+# ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
 
@@ -63,11 +128,17 @@ class CryoEIPatchDataset(Dataset):
     cross half-set pairing is preserved — ObsLoss and EqLoss can compare them
     exactly as they compare full volumes in CryoEIFullDataset.
 
-    Normalisation (zero-mean, unit-std) is applied independently to each patch
-    after cropping, matching icecream's per-patch normalisation.
+    Volumes are memory-mapped at the OS level.  Each ``__getitem__`` call
+    reads only the ~1–3 MB of disk pages covering the requested 72³ crop.
+    Repeated access to the same region within a worker is served from the OS
+    page cache (no disk I/O after the first touch).
 
-    When only EVN is available, ``odd_patch`` is a copy of ``evn_patch`` so the
-    single-half ObsLoss fallback ``L = fourier_loss(y, f(y), wedge)`` still works.
+    Normalisation (zero-mean, unit-std per patch) is applied independently to
+    each patch after cropping when ``normalize=True``.
+
+    When only EVN is available, ``odd_patch`` is a copy of ``evn_patch`` so
+    the single-half ObsLoss fallback ``L = fourier_loss(y, f(y), wedge)``
+    still works.
 
     :param list[Path] evn_paths: Paths to EVN half-set MRC volumes.
     :param list[Path | None] odd_paths: Paths to ODD half-set MRC volumes (or None).
@@ -102,21 +173,12 @@ class CryoEIPatchDataset(Dataset):
             tilt_ranges if tilt_ranges is not None else [None] * len(evn_paths)
         )
 
-        # Load all volumes into CPU memory once at init — matches icecream's load_data.
-        print(f"[ei-patch] Loading {len(evn_paths)} volume pair(s) into memory ...")
-        self.evn_vols: list[torch.Tensor] = []
-        self.odd_vols: list[torch.Tensor | None] = []
-        for i, (evn_p, odd_p) in enumerate(zip(evn_paths, odd_paths)):
-            evn_t = self._load_vol(evn_p)
-            self.evn_vols.append(evn_t)
-            if odd_p is not None:
-                self.odd_vols.append(self._load_vol(odd_p))
-                print(f"[ei-patch]   [{i}] EVN {evn_p.name}  shape={list(evn_t.shape)}")
-            else:
-                self.odd_vols.append(None)
-                print(f"[ei-patch]   [{i}] EVN {evn_p.name}  shape={list(evn_t.shape)}  (no ODD)")
+        # Lazy proxies keep the ds.evn_vols[i] / ds.odd_vols[i] interface that
+        # the inference loop in run_ei_patch.py relies on.  No data is read here.
+        self.evn_vols = _LazyVolList(evn_paths, normalize)
+        self.odd_vols = _LazyVolList(odd_paths, normalize)
 
-        n_paired = sum(p is not None for p in self.odd_vols)
+        n_paired = sum(p is not None for p in odd_paths)
         n_tlt    = sum(t is not None for t in self._tilt_ranges)
         print(
             f"[ei-patch] CryoEIPatchDataset: {len(evn_paths)} vols "
@@ -129,25 +191,37 @@ class CryoEIPatchDataset(Dataset):
     # ------------------------------------------------------------------
 
     def __len__(self) -> int:
-        return len(self.evn_vols) * self.n_crops_per_vol
+        return len(self.evn_paths) * self.n_crops_per_vol
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, dict]:
-        vol_idx = idx % len(self.evn_vols)
+        vol_idx = idx % len(self.evn_paths)
 
-        evn_vol = self.evn_vols[vol_idx]   # (D, H, W) tensor, already in memory
-        odd_vol = self.odd_vols[vol_idx]
-        if odd_vol is None:
+        _, evn_vol = _open_mrc_mmap(str(self.evn_paths[vol_idx]))
+        odd_p = self.odd_paths[vol_idx]
+        if odd_p is not None:
+            _, odd_vol = _open_mrc_mmap(str(odd_p))
+        else:
             odd_vol = evn_vol
 
-        # Same random crop coordinates for both halves
         D, H, W = evn_vol.shape
         cs = self.crop_size
         d0 = random.randint(0, max(0, D - cs))
         h0 = random.randint(0, max(0, H - cs))
         w0 = random.randint(0, max(0, W - cs))
 
-        evn_patch = evn_vol[d0:d0 + cs, h0:h0 + cs, w0:w0 + cs].unsqueeze(0)  # (1, cs, cs, cs)
-        odd_patch = odd_vol[d0:d0 + cs, h0:h0 + cs, w0:w0 + cs].unsqueeze(0)
+        # Slicing the memmap triggers OS page faults for only the ~1–3 MB
+        # of data covering this crop; np.ascontiguousarray materialises those
+        # pages into a fresh contiguous array.
+        evn_patch = torch.from_numpy(
+            np.ascontiguousarray(evn_vol[d0:d0 + cs, h0:h0 + cs, w0:w0 + cs])
+        ).unsqueeze(0)  # (1, cs, cs, cs)
+        odd_patch = torch.from_numpy(
+            np.ascontiguousarray(odd_vol[d0:d0 + cs, h0:h0 + cs, w0:w0 + cs])
+        ).unsqueeze(0)
+
+        if self.normalize:
+            evn_patch = (evn_patch - evn_patch.mean()) / (evn_patch.std() + 1e-8)
+            odd_patch = (odd_patch - odd_patch.mean()) / (odd_patch.std() + 1e-8)
 
         tilt = self._tilt_ranges[vol_idx]
         if tilt is None:
@@ -158,23 +232,6 @@ class CryoEIPatchDataset(Dataset):
         }
         return evn_patch, odd_patch, tilt_params
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _load_vol(self, path: Path) -> torch.Tensor:
-        """Load MRC into a CPU float32 tensor, normalize whole volume if requested."""
-        vol_np = np.array(
-            mrcfile.open(str(path), permissive=True).data,
-            dtype=np.float32,
-        )
-        # MRC stores (Z, Y, X); moveaxis → (Y, X, Z) = (D, H, W), matching icecream
-        vol_np = np.moveaxis(vol_np, 0, 2)
-        vol_t = torch.from_numpy(vol_np)
-        if self.normalize:
-            vol_t = (vol_t - vol_t.mean()) / (vol_t.std() + 1e-8)
-        return vol_t
-
 
 # ---------------------------------------------------------------------------
 # DataLoader builder
@@ -184,11 +241,13 @@ def _make_patch_loader(
     dataset: Dataset,
     shuffle: bool,
     cfg: EIPatchDataConfig,
+    sampler=None,
 ) -> DataLoader:
     kwargs: dict = dict(
         dataset=dataset,
         batch_size=int(cfg.batch_size),
-        shuffle=shuffle,
+        shuffle=shuffle if sampler is None else False,
+        sampler=sampler,
         drop_last=False,
         num_workers=int(cfg.num_workers),
         pin_memory=bool(cfg.pin_memory),
@@ -199,24 +258,14 @@ def _make_patch_loader(
     return DataLoader(**kwargs)
 
 
-def build_ei_patch_dataloaders(cfg: EIPatchDataConfig) -> EIDataBundle:
+def build_ei_patch_dataloaders(cfg: EIPatchDataConfig, rank: int = 0, world_size: int = 1) -> EIDataBundle:
     """Build train / val DataLoaders over paired EVN+ODD patch crops."""
     input_dir = Path(cfg.input_dir)
     all_evn, all_odd, all_tlt = _discover_pairs(
         input_dir, cfg.evn_glob, cfg.odd_glob
     )
-    
 
-    all_tilt_ranges: list[tuple[float, float] | None] = []
-    for tlt_path in all_tlt:
-        if tlt_path is not None:
-            try:
-                all_tilt_ranges.append(_read_tlt(tlt_path))
-            except Exception as e:
-                print(f"[ei-data] WARNING: could not read {tlt_path}: {e}")
-                all_tilt_ranges.append(None)
-        else:
-            all_tilt_ranges.append(None)
+    all_tilt_ranges = _resolve_tlt_ranges(all_tlt)
 
     train_evn, train_odd, val_evn, val_odd, train_tlt, val_tlt = _split_pairs(
         all_evn, all_odd, cfg.max_val_vols, cfg.seed, cfg.max_train_vols,
@@ -239,7 +288,16 @@ def build_ei_patch_dataloaders(cfg: EIPatchDataConfig) -> EIDataBundle:
         f"train_patches={len(train_ds)}  val_patches={len(val_ds)}"
     )
 
+    train_sampler = None
+    if world_size > 1:
+        from torch.utils.data.distributed import DistributedSampler
+        train_sampler = DistributedSampler(
+            train_ds, num_replicas=world_size, rank=rank, shuffle=True, drop_last=True,
+        )
+    train_loader = _make_patch_loader(train_ds, shuffle=True, cfg=cfg, sampler=train_sampler)
+
     return EIDataBundle(
-        train_loader=_make_patch_loader(train_ds, shuffle=True,  cfg=cfg),
-        val_loader  =_make_patch_loader(val_ds,   shuffle=False, cfg=cfg),
+        train_loader=train_loader,
+        val_loader  =_make_patch_loader(val_ds, shuffle=False, cfg=cfg),
+        train_sampler=train_sampler,
     )

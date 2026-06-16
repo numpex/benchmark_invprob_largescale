@@ -12,11 +12,13 @@ Subclasses override the two science hooks:
 """
 from __future__ import annotations
 
+import contextlib
 import time
 from pathlib import Path
 
 import deepinv as dinv
 import torch
+import torch.nn as nn
 
 from .utils import PerfProbe, append_metrics_row
 
@@ -90,6 +92,9 @@ class BaseTrainer(dinv.Trainer):
                 self._epoch_fwd_model_time = 0.0
                 self._epoch_fwd_loss_time  = 0.0
                 self._epoch_bwd_time       = 0.0
+                train_sampler = getattr(self, "_train_sampler", None)
+                if train_sampler is not None:
+                    train_sampler.set_epoch(epoch)
             self._train_batch_count = getattr(self, "_train_batch_count", 0) + 1
         else:
             self._val_batch_count = getattr(self, "_val_batch_count", 0) + 1
@@ -110,10 +115,17 @@ class BaseTrainer(dinv.Trainer):
         if train and step and at_window_start:
             self.optimizer.zero_grad(set_to_none=True)
 
+        autocast_ctx = getattr(self, "_autocast", None) or contextlib.nullcontext()
+
         with torch.enable_grad() if train else torch.no_grad():
             # Forward pass
             with PerfProbe() as p_model:
-                x_net, y_net = self.forward_pass(x, y, physics, train=train)
+                with autocast_ctx:
+                    x_net, y_net = self.forward_pass(x, y, physics, train=train)
+                if x_net is not None:
+                    x_net = x_net.float()
+                if y_net is not None:
+                    y_net = y_net.float()
 
             # Loss computation
             if train or self.compute_eval_losses:
@@ -136,16 +148,32 @@ class BaseTrainer(dinv.Trainer):
                 p_loss = PerfProbe()
 
         # Backward + optimizer step
+        scaler = getattr(self, "_scaler", None)
         if train:
+            # With DDP + grad accumulation: skip the expensive NCCL all-reduce on
+            # intermediate steps; only sync on the last step of the accumulation window.
+            is_ddp = isinstance(self.model, nn.parallel.DistributedDataParallel)
+            bwd_ctx = self.model.no_sync() if (is_ddp and not at_window_end) else contextlib.nullcontext()
             with PerfProbe() as p_bwd:
-                (loss_total / accum).backward()
+                with bwd_ctx:
+                    if scaler is not None:
+                        scaler.scale(loss_total / accum).backward()
+                    else:
+                        (loss_total / accum).backward()
+
+            if step and at_window_end and scaler is not None:
+                scaler.unscale_(self.optimizer)  # unscale before grad clip so clip sees real magnitudes
 
             norm = self.check_clip_grad()
             if norm is not None:
                 logs["gradient_norm"] = self.check_grad_val.avg
 
             if step and at_window_end:
-                self.optimizer.step()
+                if scaler is not None:
+                    scaler.step(self.optimizer)
+                    scaler.update()
+                else:
+                    self.optimizer.step()
 
             self._epoch_fwd_model_time += p_model.elapsed_s
             self._epoch_fwd_loss_time  += p_loss.elapsed_s
@@ -230,9 +258,10 @@ class BaseTrainer(dinv.Trainer):
         if not train and ckpt_dir is not None:
             Path(ckpt_dir).mkdir(parents=True, exist_ok=True)
             ep = step
+            _save_model = getattr(self.model, "processor", self.model)
             state = {
                 "epoch": ep,
-                "state_dict": self.model.state_dict(),
+                "model_state_dict": _save_model.state_dict(),
                 "optimizer": self.optimizer.state_dict() if self.optimizer else None,
                 "scheduler": getattr(self, "_scheduler", None) and self._scheduler.state_dict(),
             }
@@ -253,5 +282,28 @@ class BaseTrainer(dinv.Trainer):
                         direction = "↑" if higher else "↓"
                         print(f"[ckpt] new best {metric_key}={val_score:.4f} {direction} → ckp_best.pth", flush=True)
 
+    def _enable_mixed_precision(self, device_type: str = "cuda") -> None:
+        """Enable fp16 AMP training (GradScaler + autocast)."""
+        self._scaler   = torch.amp.GradScaler(device_type)
+        self._autocast = torch.amp.autocast(device_type)
+
     def plot(self, epoch, physics, x, y, x_net, train=True):  # type: ignore[override]
         """Suppress the default deepinv plot."""
+
+
+class EIBaseTrainer(BaseTrainer):
+    """BaseTrainer subclass shared by EIFullTrainer and EIPatchTrainer.
+
+    Provides the paired EVN+ODD forward pass used by both equivariant variants:
+      train → x_net = f(EVN), y_net = f(ODD)  (both with grad)
+      val   → returns zeros sentinel; val compute_loss overrides handle the real work
+    """
+
+    def forward_pass(self, x, y, physics, train):
+        if not train:
+            return torch.zeros_like(y), None
+        x_net = self.model_inference(y=x, physics=physics, x=y, train=True)  # f(EVN)
+        y_net = self.model_inference(y=y, physics=physics, x=x, train=True)  # f(ODD)
+        self._last_train_xnet = x_net
+        self._last_train_ynet = y_net
+        return x_net, y_net

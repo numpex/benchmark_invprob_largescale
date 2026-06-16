@@ -23,7 +23,7 @@ import mrcfile
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
-from equivariant.utils import EIDataBundle, _discover_pairs, _read_tlt, _split_pairs
+from equivariant.utils import EIDataBundle, _discover_pairs, _resolve_tlt_ranges, _split_pairs
 
 # ---------------------------------------------------------------------------
 # Config
@@ -132,10 +132,8 @@ class CryoEIFullDataset(Dataset):
     def _load_and_prepare(self, path: Path) -> torch.Tensor:
         """Load MRC, reorder axes, optional resample, centre-crop to cube, normalise → (1, D, H, W)."""
         # MRC stores (Z, Y, X); moveaxis → (Y, X, Z) = (D, H, W)
-        vol_np = np.array(
-            mrcfile.open(str(path), permissive=True).data,
-            dtype=np.float32,
-        )
+        with mrcfile.open(str(path), permissive=True, mode="r") as mrc:
+            vol_np = np.array(mrc.data, dtype=np.float32)
         vol = torch.from_numpy(np.moveaxis(vol_np, 0, 2))  # (D, H, W)
 
         if self.target_shape is not None:
@@ -191,17 +189,7 @@ def build_ei_full_dataloaders(cfg: EIFullDataConfig) -> EIDataBundle:
         input_dir, cfg.evn_glob, cfg.odd_glob
     )
 
-    # Resolve tlt files → (tilt_min, tilt_max) per volume, or None.
-    all_tilt_ranges: list[tuple[float, float] | None] = []
-    for tlt_path in all_tlt:
-        if tlt_path is not None:
-            try:
-                all_tilt_ranges.append(_read_tlt(tlt_path))
-            except Exception as e:
-                print(f"[ei-data] WARNING: could not read {tlt_path}: {e}")
-                all_tilt_ranges.append(None)
-        else:
-            all_tilt_ranges.append(None)
+    all_tilt_ranges = _resolve_tlt_ranges(all_tlt)
 
     train_evn, train_odd, val_evn, val_odd, train_tlt_ranges, val_tlt_ranges = _split_pairs(
         all_evn, all_odd, cfg.max_val_vols, cfg.seed, cfg.max_train_vols,

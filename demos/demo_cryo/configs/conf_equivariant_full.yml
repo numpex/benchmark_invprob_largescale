@@ -4,27 +4,35 @@ general:
   input_dir: /lustre/fswork/projects/rech/fio/commun/cryolithe/empiar-11830
   output_root: ./runs
   run_name: demo-cryo-ei-full
-  execution_mode: submitit   # change to 'slurm' to submit via submitit
-  max_train_vols: 8 # null = all non-val volumes
+  execution_mode: submitit   # change to 'local' to run without SLURM
+  max_train_vols: 4 # null = all non-val volumes
   max_val_vols: 4
   seed: 0
   target_shape: null
 
 training:
-  num_epochs: 10
+  num_epochs: 5
   learning_rate: 1.0e-4
   scheduler_gamma: 1 # learning rate constant (no decay)
   scheduler_lr_min: 5.0e-6
   grad_clip: 1.0
   ckp_interval: 1000
-  eval_interval: 10
+  eval_interval: 1
   # Accumulate gradients over this many full volumes before each optimiser step.
   # Compensates for DataLoader batch_size=1.
-  grad_accumulation_steps: 2
-  model_type: icecream     # "deepinv" (BatchNorm, no dropout) | "icecream" (no norm, dropout=0.1)
-  unet_f_maps: 64          # icecream UNet only: base feature-map count
-  unet_num_levels: 4       # icecream UNet only: encoder depth
-  unet_dropout: 0.1        # icecream UNet only: dropout probability
+  grad_accumulation_steps: 4
+  use_mixed_precision: true  # true = fp16 forward + scaled backward (~2x faster, matches icecream default)
+  model_type: unet         # "unet" | "drunet"
+  unet_f_maps: 64          # base channel width (shared: unet 64→128→256→512; drunet same)
+  # unet params
+  unet_num_levels: 4
+  unet_dropout: 0.1
+  # drunet params
+  drunet_nb: 4
+  drunet_sigma: 0.0
+  pretrained_ckpt: /lustre/fswork/projects/rech/fio/commun/Results_cryo/runs/demo-cryo-ei-patch_4_samples_2000_epochs/slurm-427281/checkpoints/ckp_final.pth  
+  # path to a local .pth checkpoint to use as init, or null to train from scratch
+
 
 data:
   batch_size: 1          # always 1 full volume per item
@@ -35,11 +43,11 @@ data:
 
 distributed:
   # UNet tile size — must be strictly < target_shape in every dimension.
-  patch_size: [128, 128, 128]
-  overlap: [16, 16, 16]
+  patch_size: [36, 36, 36]
+  overlap: [18, 18, 18]
   # Maximum number of tiles processed simultaneously on the GPU.
   # Reduce to save VRAM; increase to improve throughput.
-  max_batch_size: 1
+  max_batch_size: 4
   # Gradient checkpointing inside the distributed tiled forward pass.
   checkpoint_batches: "auto"
 
@@ -59,17 +67,15 @@ equivariant:
   ref_wedge_support: 1.0
   eval_fsc: true
   fsc_threshold: 0.143   # gold-standard FSC resolution criterion
-  # Fallback pixel size (Å/px) used when the MRC header voxel_size == 0.
-  # Leave as null to fall back to 1.0 (resolution reported in shells, not Å).
   pixel_size_angstrom: 7.84
 
 
 slurm:
   job_name: demo-cryo-ei-full
-  nodes: 4
+  nodes: 2
   gpus_per_node: 4
   ntasks_per_node: 4
-  cpus_per_task: 20
+  cpus_per_task: 24
   time: "02:00:00"
   account: "fio@h100"
   constraint: "h100"

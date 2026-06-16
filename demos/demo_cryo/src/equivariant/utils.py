@@ -26,6 +26,7 @@ from torch.utils.data import DataLoader
 class EIDataBundle:
     train_loader: DataLoader
     val_loader: DataLoader
+    train_sampler: object | None = None  # DistributedSampler when DDP is active
 
 
 def _read_tlt(path: Path) -> tuple[float, float]:
@@ -54,6 +55,23 @@ def _find_tlt_for_dir(tomo_dir: Path) -> Path | None:
     if candidates:
         return candidates[0]
     return None
+
+
+def _resolve_tlt_ranges(
+    tlt_paths: list[Path | None],
+) -> list[tuple[float, float] | None]:
+    """Read tilt ranges from tlt files, returning None for missing or unreadable ones."""
+    ranges: list[tuple[float, float] | None] = []
+    for tlt_path in tlt_paths:
+        if tlt_path is None:
+            ranges.append(None)
+        else:
+            try:
+                ranges.append(_read_tlt(tlt_path))
+            except Exception as e:
+                print(f"[ei-data] WARNING: could not read {tlt_path}: {e}")
+                ranges.append(None)
+    return ranges
 
 
 def _discover_pairs(
@@ -382,6 +400,20 @@ class GpuFSC:
         denom = torch.sqrt(den1 * den2)
         fsc   = torch.where(denom > 0.0, num / denom, torch.zeros_like(num))
         return fsc.cpu().numpy()
+
+
+# ---------------------------------------------------------------------------
+# Self-supervised reconstruction helper
+# ---------------------------------------------------------------------------
+
+def half_set_recon(
+    model: "torch.nn.Module",
+    physics,
+    f_evn: "torch.Tensor",
+    f_odd: "torch.Tensor",
+) -> "torch.Tensor":
+    """Self-supervised reconstruction: 0.5 * (f(A(f_evn)) + f(A(f_odd)))."""
+    return 0.5 * (model(physics.A(f_evn)) + model(physics.A(f_odd)))
 
 
 # ---------------------------------------------------------------------------

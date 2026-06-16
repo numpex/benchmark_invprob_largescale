@@ -206,7 +206,6 @@ class MissingWedge(dinv.physics.LinearPhysics):
         if tilt_min == self._tilt_min and tilt_max == self._tilt_max:
             return  # angles unchanged — skip expensive _build_masks
 
-        print(f"[physics] wedge update: [{self._tilt_min:.1f}, {self._tilt_max:.1f}] → [{tilt_min:.1f}, {tilt_max:.1f}]", flush=True)
         new_mask, new_mask_ref = self._build_masks(tilt_max, tilt_min, self.mask.device)
         self.mask.copy_(new_mask)
         self.mask_ref.copy_(new_mask_ref)
