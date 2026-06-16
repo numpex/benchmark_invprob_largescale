@@ -3,11 +3,9 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from toolsbench.invprob.multiframe_superres import (
-    MultiFrameSuperResInvProb,
-    MultiFrameSuperResInvProbConfig,
-)
-from toolsbench.invprob.tomography import TomographyInvProb, TomographyInvProbConfig
+from toolsbench.invprob.base import InvProbConfig
+from toolsbench.invprob.multiframe_superres import MultiFrameSuperResInvProb
+from toolsbench.invprob.tomography import TomographyInvProb
 
 
 class DummyAstraPhysics:
@@ -28,16 +26,18 @@ def mock_tomo3d_dataset():
 
 class TestMultiFrameSuperResInvProb:
     def test_get_invprob_shapes_dtype_and_num_physics(self):
-        cfg = MultiFrameSuperResInvProbConfig(
+        cfg = InvProbConfig(
             size=(16, 16),
             batch_size=2,
             channels=1,
             data_type=torch.float32,
             device=torch.device("cpu"),
-            num_frames=3,
-            scale_factor=2,
-            noise_std=0.0,
-            data="synthetic",
+            params={
+                "num_frames": 3,
+                "scale_factor": 2,
+                "noise_std": 0.0,
+                "data": "synthetic",
+            },
         )
 
         invprob = MultiFrameSuperResInvProb().get_invprob(cfg)
@@ -53,21 +53,38 @@ class TestMultiFrameSuperResInvProb:
             assert measurement.shape == (2, 1, 8, 8)
             assert measurement.dtype == torch.float32
 
+    def test_warns_and_ignores_unknown_params(self):
+        cfg = InvProbConfig(
+            size=(16, 16),
+            params={
+                "num_frame": 3,
+                "num_frames": 2,
+                "noise_std": 0.0,
+            },
+        )
+
+        with pytest.warns(UserWarning, match="will not be taken into account"):
+            invprob = MultiFrameSuperResInvProb().get_invprob(cfg)
+
+        assert invprob.num_operators == 2
+
 
 class TestTomographyInvProb:
     def test_get_invprob_shapes_dtype_and_num_physics(
         self, tmp_path, mock_tomo3d_dataset
     ):
-        cfg = TomographyInvProbConfig(
+        cfg = InvProbConfig(
             size=(5, 6, 7),
             batch_size=2,
             channels=1,
             data_type=torch.float32,
             device=torch.device("cpu"),
             data_path=str(tmp_path),
-            data="3d",
-            num_operators=3,
-            num_projections=6,
+            params={
+                "data": "3d",
+                "num_operators": 3,
+                "num_projections": 6,
+            },
         )
 
         with patch(

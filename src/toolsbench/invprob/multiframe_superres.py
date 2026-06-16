@@ -14,13 +14,16 @@ from deepinv.physics.functional import gaussian_blur
 
 from toolsbench.data import DataConfig, HighResColorImagingData, SyntheticData
 from toolsbench.data.base import BaseData
-from toolsbench.invprob.base import BaseInvProb, InvProb, InvProbConfig
+from toolsbench.invprob.base import (
+    BaseInvProb,
+    InvProb,
+    InvProbConfig,
+    _build_problem_params,
+)
 
 
 @dataclass
-class MultiFrameSuperResInvProbConfig(InvProbConfig):
-    """Configuration for a multi-frame super-resolution inverse problem."""
-
+class _MultiFrameSuperResParams:
     num_frames: int = 5
     scale_factor: int = 2
     noise_std: float = 0.01
@@ -31,9 +34,13 @@ class MultiFrameSuperResInvProbConfig(InvProbConfig):
 
 class MultiFrameSuperResInvProb(BaseInvProb):
 
-    def get_invprob(self, invprob_config: MultiFrameSuperResInvProbConfig) -> InvProb:
+    def get_invprob(self, invprob_config: InvProbConfig) -> InvProb:
+        params = _build_problem_params(
+            _MultiFrameSuperResParams,
+            invprob_config.params,
+        )
         device = torch.device(invprob_config.device)
-        data = self._get_data(invprob_config).get_data(
+        data = self._get_data(params).get_data(
             DataConfig(
                 size=invprob_config.size,
                 batch_size=invprob_config.batch_size,
@@ -45,7 +52,7 @@ class MultiFrameSuperResInvProb(BaseInvProb):
         )
 
         physics = self._build_stacked_physics(
-            invprob_config, data["data"].shape, device
+            params, invprob_config.data_type, data["data"].shape, device
         )
 
         with torch.no_grad():
@@ -58,27 +65,28 @@ class MultiFrameSuperResInvProb(BaseInvProb):
             measurements=measurements,
             physics=physics,
             ground_truth_shape=data["data"].shape,
-            num_operators=invprob_config.num_frames,
+            num_operators=params.num_frames,
             min_pixel=0.0,
             max_pixel=1.0,
         )
 
-    def _get_data(self, invprob_config: MultiFrameSuperResInvProbConfig) -> BaseData:
+    def _get_data(self, params: _MultiFrameSuperResParams) -> BaseData:
         data_sources: dict[str, Type[BaseData]] = {
             "synthetic": SyntheticData,
             "highres_imaging": HighResColorImagingData,
         }
-        key = invprob_config.data
+        key = params.data
         if key not in data_sources:
             raise ValueError(
-                f"Unsupported data source '{invprob_config.data}'. "
+                f"Unsupported data source '{params.data}'. "
                 f"Choose one of {sorted(data_sources)}."
             )
         return data_sources[key]()
 
     def _build_stacked_physics(
         self,
-        invprob_config: MultiFrameSuperResInvProbConfig,
+        params: _MultiFrameSuperResParams,
+        data_type: torch.dtype,
         ground_truth_shape: torch.Size,
         device: torch.device,
     ) -> StackedPhysics:
@@ -87,41 +95,41 @@ class MultiFrameSuperResInvProb(BaseInvProb):
                 "MultiFrameSuperResInvProb expects 2D image batches with shape "
                 f"(batch, channels, height, width), got {tuple(ground_truth_shape)}."
             )
-        if invprob_config.num_frames < 1:
+        if params.num_frames < 1:
             raise ValueError("num_frames must be at least 1.")
-        if invprob_config.scale_factor < 1:
+        if params.scale_factor < 1:
             raise ValueError("scale_factor must be at least 1.")
-        if invprob_config.blur_kernel_size < 1:
+        if params.blur_kernel_size < 1:
             raise ValueError("blur_kernel_size must be at least 1.")
-        if invprob_config.blur_kernel_size % 2 == 0:
+        if params.blur_kernel_size % 2 == 0:
             raise ValueError("blur_kernel_size must be odd.")
 
         _, channels, height, width = ground_truth_shape
         img_size = (channels, height, width)
-        angles = torch.linspace(0, 180, invprob_config.num_frames + 1)[:-1]
+        angles = torch.linspace(0, 180, params.num_frames + 1)[:-1]
 
         physics_list = []
         for frame_idx, angle in enumerate(angles):
             kernel = gaussian_blur(
                 psf_size=(
-                    invprob_config.blur_kernel_size,
-                    invprob_config.blur_kernel_size,
+                    params.blur_kernel_size,
+                    params.blur_kernel_size,
                 ),
-                sigma=invprob_config.blur_sigma,
+                sigma=params.blur_sigma,
                 angle=float(angle.item()),
                 device=device,
-                dtype=invprob_config.data_type,
+                dtype=data_type,
             )
             blur = Blur(filter=kernel, padding="circular", device=device)
             generator = torch.Generator(device=device).manual_seed(frame_idx)
             downsample = Downsampling(
                 img_size=img_size,
                 filter=None,
-                factor=invprob_config.scale_factor,
+                factor=params.scale_factor,
                 padding="circular",
                 device=device,
                 noise_model=GaussianNoise(
-                    sigma=invprob_config.noise_std,
+                    sigma=params.noise_std,
                     rng=generator,
                 ),
             )

@@ -5,13 +5,16 @@ import torch
 from deepinv.physics import GaussianNoise, TomographyWithAstra
 
 from toolsbench.data import DataConfig, Tomography2D, Tomography3D
-from toolsbench.invprob.base import BaseInvProb, InvProb, InvProbConfig
+from toolsbench.invprob.base import (
+    BaseInvProb,
+    InvProb,
+    InvProbConfig,
+    _build_problem_params,
+)
 
 
 @dataclass
-class TomographyInvProbConfig(InvProbConfig):
-    """Configuration for ASTRA-backed tomography inverse problems."""
-
+class _TomographyParams:
     data: str = "2d"
     num_operators: int = 1
     num_angles: int = 100
@@ -31,19 +34,22 @@ class TomographyInvProbConfig(InvProbConfig):
 class TomographyInvProb(BaseInvProb):
     """ASTRA-backed 2D/3D tomography inverse problem."""
 
-    def get_invprob(self, invprob_config: TomographyInvProbConfig) -> InvProb:
-        self._validate_config(invprob_config)
-        data_kind = invprob_config.data.lower()
+    def get_invprob(self, invprob_config: InvProbConfig) -> InvProb:
+        params = _build_problem_params(_TomographyParams, invprob_config.params)
+        self._validate_config(params)
+        data_kind = params.data.lower()
         if data_kind in {"2d", "tomography_2d"}:
-            return self._get_2d_invprob(invprob_config)
+            return self._get_2d_invprob(invprob_config, params)
         if data_kind in {"3d", "tomography_3d"}:
-            return self._get_3d_invprob(invprob_config)
+            return self._get_3d_invprob(invprob_config, params)
         raise ValueError(
-            f"Unsupported tomography data '{invprob_config.data}'. "
+            f"Unsupported tomography data '{params.data}'. "
             "Choose one of ['2d', 'tomography_2d', '3d', 'tomography_3d']."
         )
 
-    def _get_2d_invprob(self, invprob_config: TomographyInvProbConfig) -> InvProb:
+    def _get_2d_invprob(
+        self, invprob_config: InvProbConfig, params: _TomographyParams
+    ) -> InvProb:
         device = torch.device(invprob_config.device)
         data = Tomography2D().get_data(
             DataConfig(
@@ -64,14 +70,12 @@ class TomographyInvProb(BaseInvProb):
                 f"{tuple(ground_truth.shape[-2:])}."
             )
 
-        angles = self._angles_2d(invprob_config, device)
-        split_indices = self._split_indices(
-            invprob_config.num_angles, invprob_config.num_operators
-        )
+        angles = self._angles_2d(invprob_config, params, device)
+        split_indices = self._split_indices(params.num_angles, params.num_operators)
         angles_list = list(torch.tensor_split(angles, split_indices))
 
         full_physics = self._build_2d_physics(
-            invprob_config=invprob_config,
+            params=params,
             angles=angles,
             img_size=tuple(ground_truth.shape[-2:]),
             device=device,
@@ -87,7 +91,7 @@ class TomographyInvProb(BaseInvProb):
         ]
 
         physics_factory = self._create_2d_physics_factory(
-            invprob_config=invprob_config,
+            params=params,
             angles_list=angles_list,
             img_size=tuple(ground_truth.shape[-2:]),
         )
@@ -97,13 +101,15 @@ class TomographyInvProb(BaseInvProb):
             measurements=measurements,
             physics=physics_factory,
             ground_truth_shape=ground_truth.shape,
-            num_operators=invprob_config.num_operators,
+            num_operators=params.num_operators,
             min_pixel=ground_truth.min().item(),
             max_pixel=ground_truth.max().item(),
         )
 
-    def _get_3d_invprob(self, invprob_config: TomographyInvProbConfig) -> InvProb:
-        if not invprob_config.use_dataset_sinogram:
+    def _get_3d_invprob(
+        self, invprob_config: InvProbConfig, params: _TomographyParams
+    ) -> InvProb:
+        if not params.use_dataset_sinogram:
             raise NotImplementedError(
                 "Generating 3D ASTRA measurements by forward pass is not implemented."
             )
@@ -122,23 +128,19 @@ class TomographyInvProb(BaseInvProb):
         ground_truth = data["ground_truth"]
         img_shape = tuple(ground_truth.shape[-3:])
 
-        trajectory = self._subsample_angles(
-            data["vecs"], invprob_config.num_projections
-        )
-        sinogram = self._subsample_angles(
-            data["sinogram"], invprob_config.num_projections
-        )
+        trajectory = self._subsample_angles(data["vecs"], params.num_projections)
+        sinogram = self._subsample_angles(data["sinogram"], params.num_projections)
         measurements_factory = self._create_3d_measurements_factory(
             sinogram=sinogram,
-            num_operators=invprob_config.num_operators,
+            num_operators=params.num_operators,
         )
         measurements = [
             measurements_factory(i, device, None)
-            for i in range(invprob_config.num_operators)
+            for i in range(params.num_operators)
         ]
 
         physics_factory = self._create_3d_physics_factory(
-            invprob_config=invprob_config,
+            params=params,
             trajectory=trajectory,
             img_shape=img_shape,
         )
@@ -148,20 +150,20 @@ class TomographyInvProb(BaseInvProb):
             measurements=measurements,
             physics=physics_factory,
             ground_truth_shape=ground_truth.shape,
-            num_operators=invprob_config.num_operators,
+            num_operators=params.num_operators,
             min_pixel=ground_truth.min().item(),
             max_pixel=ground_truth.max().item(),
         )
 
     def _create_2d_physics_factory(
         self,
-        invprob_config: TomographyInvProbConfig,
+        params: _TomographyParams,
         angles_list: list[torch.Tensor],
         img_size: tuple[int, int],
     ):
         def factory(index: int, device: torch.device, shared: Optional[dict] = None):
             return self._build_2d_physics(
-                invprob_config=invprob_config,
+                params=params,
                 angles=angles_list[index].to(device),
                 img_size=img_size,
                 device=torch.device(device),
@@ -172,34 +174,32 @@ class TomographyInvProb(BaseInvProb):
 
     def _build_2d_physics(
         self,
-        invprob_config: TomographyInvProbConfig,
+        params: _TomographyParams,
         angles: torch.Tensor,
         img_size: tuple[int, int],
         device: torch.device,
         index: int,
     ) -> TomographyWithAstra:
-        rng = torch.Generator(device=device).manual_seed(invprob_config.seed + index)
+        rng = torch.Generator(device=device).manual_seed(params.seed + index)
         return TomographyWithAstra(
             img_size=img_size,
             angles=angles,
-            n_detector_pixels=invprob_config.detector_pixels_2d,
-            detector_spacing=invprob_config.detector_spacing_2d,
-            pixel_spacing=invprob_config.pixel_spacing_2d,
-            geometry_type=invprob_config.geometry_type_2d,
+            n_detector_pixels=params.detector_pixels_2d,
+            detector_spacing=params.detector_spacing_2d,
+            pixel_spacing=params.pixel_spacing_2d,
+            geometry_type=params.geometry_type_2d,
             normalize=False,
             device=device,
-            noise_model=GaussianNoise(sigma=invprob_config.noise_level, rng=rng),
+            noise_model=GaussianNoise(sigma=params.noise_level, rng=rng),
         )
 
     def _create_3d_physics_factory(
         self,
-        invprob_config: TomographyInvProbConfig,
+        params: _TomographyParams,
         trajectory: torch.Tensor,
         img_shape: tuple[int, int, int],
     ):
-        splits = self._projection_splits(
-            trajectory.shape[0], invprob_config.num_operators
-        )
+        splits = self._projection_splits(trajectory.shape[0], params.num_operators)
         trajectory = trajectory.detach().cpu()
 
         def factory(index: int, device: torch.device, shared: Optional[dict] = None):
@@ -208,9 +208,9 @@ class TomographyInvProb(BaseInvProb):
             physics = TomographyWithAstra(
                 img_size=img_shape,
                 angles=end - start,
-                n_detector_pixels=invprob_config.detector_pixels_3d,
-                pixel_spacing=invprob_config.object_spacing_3d,
-                geometry_type=invprob_config.geometry_type_3d,
+                n_detector_pixels=params.detector_pixels_3d,
+                pixel_spacing=params.object_spacing_3d,
+                geometry_type=params.geometry_type_3d,
                 geometry_vectors=trajectory_subset,
                 normalize=False,
                 device=device,
@@ -253,12 +253,15 @@ class TomographyInvProb(BaseInvProb):
         )
 
     def _angles_2d(
-        self, invprob_config: TomographyInvProbConfig, device: torch.device
+        self,
+        invprob_config: InvProbConfig,
+        params: _TomographyParams,
+        device: torch.device,
     ) -> torch.Tensor:
         return torch.linspace(
             0,
             180,
-            invprob_config.num_angles + 1,
+            params.num_angles + 1,
             dtype=invprob_config.data_type,
             device=device,
         )[:-1]
@@ -298,15 +301,15 @@ class TomographyInvProb(BaseInvProb):
             edges.append(edges[-1] + size)
         return [(edges[i], edges[i + 1]) for i in range(num_operators)]
 
-    def _validate_config(self, invprob_config: TomographyInvProbConfig) -> None:
-        if invprob_config.num_operators < 1:
+    def _validate_config(self, params: _TomographyParams) -> None:
+        if params.num_operators < 1:
             raise ValueError("num_operators must be at least 1.")
-        data_kind = invprob_config.data.lower()
+        data_kind = params.data.lower()
         if data_kind in {"2d", "tomography_2d"}:
-            if invprob_config.num_angles < invprob_config.num_operators:
+            if params.num_angles < params.num_operators:
                 raise ValueError("num_angles must be at least num_operators.")
         elif data_kind in {"3d", "tomography_3d"}:
-            if invprob_config.num_projections < invprob_config.num_operators:
+            if params.num_projections < params.num_operators:
                 raise ValueError("num_projections must be at least num_operators.")
-        if invprob_config.noise_level < 0:
+        if params.noise_level < 0:
             raise ValueError("noise_level must be non-negative.")
