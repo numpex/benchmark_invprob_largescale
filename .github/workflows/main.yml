@@ -28,21 +28,5 @@ jobs:
       - name: Install project
         run: uv sync --group test
 
-      - name: Test benchmark inference
-        run: |
-          uv run benchopt run benchmark_inference/. \
-            --config benchmark_inference/configs/ci_smoke.yml \
-            --max-runs 1 \
-            --n-repetitions 1 \
-            --no-plot \
-            --no-html \
-            --no-display
-
-      - name: Test benchmark workflow
-        run: |
-          uv run benchopt run benchmark_workflows/. \
-            --max-runs 1 \
-            --n-repetitions 1 \
-            --no-plot \
-            --no-html \
-            --no-display
+      - name: Tests
+        run: uv run pytest
