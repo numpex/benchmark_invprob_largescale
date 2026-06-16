@@ -9,8 +9,6 @@ import torch
 
 from deepinv.physics import Physics, StackedPhysics
 
-from toolsbench.data.base import BaseData
-
 
 @dataclass
 class InvProb:
