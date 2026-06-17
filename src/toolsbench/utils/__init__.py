@@ -6,7 +6,6 @@ including visualization and data loading helpers.
 
 from .solver_utils import (
     build_solver_name as build_solver_name,
-    compute_step_size_from_operator as compute_step_size_from_operator,
     crop_psnr as crop_psnr,
     denormalize_from_unit as denormalize_from_unit,
     distributed_callback_iter as distributed_callback_iter,

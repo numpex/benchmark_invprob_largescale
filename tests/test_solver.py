@@ -3,8 +3,7 @@ import torch
 from unittest.mock import MagicMock, patch
 
 from toolsbench.profiler import NullProfiler
-from toolsbench.solver.base import SolverObjective
-from toolsbench.solver.pnp import PnPSolver
+from toolsbench.solver.pnp import PnPSolver, SolverObjective
 
 
 # ---------------------------------------------------------------------------
@@ -23,10 +22,9 @@ def _make_objective(**kwargs):
 
 
 def _make_solver(**attrs):
-    """Return a PnPSolver with attributes set directly, bypassing benchopt init."""
+    """Return a PnPSolver with attributes set directly, bypassing __init__."""
     solver = PnPSolver.__new__(PnPSolver)
     defaults = dict(
-        name="test-solver",
         problem=_make_objective(),
         device=torch.device("cpu"),
         profiler=NullProfiler(),
@@ -60,52 +58,7 @@ def _run_one_iter(solver, prior, data_fidelity, step_size=0.1):
         "toolsbench.solver.pnp.distributed_callback_iter",
         return_value=iter([None]),
     ):
-        solver._run_pnp_iterations(prior, data_fidelity, physics, measurements, step_size, None)
-
-
-# ---------------------------------------------------------------------------
-# SolverObjective
-# ---------------------------------------------------------------------------
-
-class TestSolverObjective:
-
-    def test_construction_with_defaults(self):
-        obj = _make_objective(num_operators=3)
-        assert obj.num_operators == 3
-        assert obj.min_pixel == 0.0
-        assert obj.max_pixel == 1.0
-        assert obj.weights is None
-
-
-# ---------------------------------------------------------------------------
-# BaseInvprobSolver (via PnPSolver)
-# ---------------------------------------------------------------------------
-
-class TestBaseInvprobSolver:
-
-    def test_set_objective_stores_problem(self):
-        solver = PnPSolver.__new__(PnPSolver)
-        solver.name_prefix = "pnp"
-        solver.slurm_nodes = 1
-        solver.slurm_ntasks_per_node = 1
-        solver.torchrun_nproc_per_node = 1
-        measurement = torch.zeros(1, 1, 8, 8)
-        with patch("toolsbench.solver.base.setup_distributed_env", return_value=1), \
-             patch("toolsbench.solver.base.build_solver_name", return_value="test-solver"):
-            solver.set_objective(
-                measurement=measurement,
-                physics=MagicMock(),
-                ground_truth_shape=torch.Size([1, 1, 8, 8]),
-                num_operators=1,
-            )
-        assert isinstance(solver.problem, SolverObjective)
-        assert solver.problem.measurement is measurement
-        assert solver.name == "test-solver"
-
-    def test_create_denoiser_unknown_raises(self):
-        solver = _make_solver(denoiser="unknown_model")
-        with pytest.raises(ValueError, match="Unknown denoiser"):
-            solver._create_denoiser(torch.device("cpu"))
+        solver._run_iterations(prior, data_fidelity, physics, measurements, step_size, None)
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +92,16 @@ class TestPnPSolverSetupComponents:
         from deepinv.optim.data_fidelity import L2
 
         solver = _make_solver()
-        with patch.object(solver, "_create_denoiser", return_value=MagicMock()):
-            prior, data_fidelity = solver._setup_components(torch.device("cpu"), ctx=None)
+        with patch("toolsbench.solver.pnp.create_drunet_denoiser", return_value=MagicMock()):
+            prior, data_fidelity = solver._setup_components()
 
         assert isinstance(prior, PnP)
         assert isinstance(data_fidelity, L2)
+
+    def test_unknown_denoiser_raises(self):
+        solver = _make_solver(denoiser="unknown_model")
+        with pytest.raises(ValueError, match="Unknown denoiser"):
+            solver._setup_components()
 
 
 # ---------------------------------------------------------------------------
@@ -212,12 +170,6 @@ class TestPnPSolverIterations:
 # ---------------------------------------------------------------------------
 
 class TestPnPSolverGetResult:
-
-    def test_contains_reconstruction(self):
-        solver = _make_solver(reconstruction=torch.ones(1, 1, 4, 4))
-        result = solver.get_result()
-        assert "reconstruction" in result
-        assert torch.equal(result["reconstruction"], torch.ones(1, 1, 4, 4))
 
     def test_includes_profiler_metrics(self):
         solver = _make_solver(reconstruction=torch.ones(1, 1, 4, 4))

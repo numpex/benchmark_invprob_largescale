@@ -1,2 +1,1 @@
-from .base import BaseInvprobSolver as BaseInvprobSolver, SolverObjective as SolverObjective
-from .pnp import PnPSolver as PnPSolver
+from .pnp import PnPSolver as PnPSolver, SolverObjective as SolverObjective

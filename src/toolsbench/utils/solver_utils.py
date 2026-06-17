@@ -11,28 +11,6 @@ import torch
 import copy
 
 
-def compute_step_size_from_operator(operator, ground_truth: torch.Tensor) -> float:
-    """Compute PnP step size as 1 / Lipschitz constant of the forward operator.
-
-    Parameters
-    ----------
-    operator : deepinv.physics.Physics
-        Physics operator (can be stacked or distributed).
-    ground_truth : torch.Tensor
-        Ground truth tensor used to create an example signal for norm computation.
-
-    Returns
-    -------
-    float
-        Step size = 1 / lipschitz_constant, or 1.0 if constant is non-positive.
-    """
-    with torch.no_grad():
-        x_example = torch.zeros_like(
-            ground_truth, device=ground_truth.device, dtype=ground_truth.dtype
-        )
-        lipschitz_constant = operator.compute_norm(x_example, local_only=False)
-        return 1.0 / lipschitz_constant if lipschitz_constant > 0 else 1.0
-
 
 def initialize_reconstruction(
     signal_shape: tuple,
