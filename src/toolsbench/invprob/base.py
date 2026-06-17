@@ -1,6 +1,6 @@
 import warnings
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, TypeVar
@@ -38,7 +38,7 @@ class InvProbConfig:
 _ParamsT = TypeVar("_ParamsT")
 
 
-def _build_problem_params(
+def build_problem_params(
     params_cls: type[_ParamsT],
     params: Mapping[str, Any] | None,
 ) -> _ParamsT:
@@ -66,6 +66,7 @@ def _build_problem_params(
 
 class BaseInvProb(ABC):
 
+    @abstractmethod
     def get_invprob(self, invprob_config: InvProbConfig) -> InvProb:
         """Returns a batch of data with parameters specified in the invprob_config."""
         raise NotImplementedError

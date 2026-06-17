@@ -42,9 +42,6 @@ class SyntheticData(BaseData):
         axes = [torch.linspace(-1, 1, s, device=device) for s in size]
         grids = torch.meshgrid(*axes, indexing="ij")  # each of shape (*size)
 
-        # Squared radius from origin (used for hypersphere masks)
-        r2_origin = sum(g**2 for g in grids)
-
         # Per-channel patterns: hypersphere + linear gradient along a distinct axis
         channels_list = []
         for c in range(channels):

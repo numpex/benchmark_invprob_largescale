@@ -9,7 +9,7 @@ from toolsbench.invprob.base import (
     BaseInvProb,
     InvProb,
     InvProbConfig,
-    _build_problem_params,
+    build_problem_params,
 )
 
 
@@ -35,7 +35,7 @@ class TomographyInvProb(BaseInvProb):
     """ASTRA-backed 2D/3D tomography inverse problem."""
 
     def get_invprob(self, invprob_config: InvProbConfig) -> InvProb:
-        params = _build_problem_params(_TomographyParams, invprob_config.params)
+        params = build_problem_params(_TomographyParams, invprob_config.params)
         self._validate_config(params)
         data_kind = params.data.lower()
         if data_kind in {"2d", "tomography_2d"}:

@@ -18,7 +18,7 @@ from toolsbench.invprob.base import (
     BaseInvProb,
     InvProb,
     InvProbConfig,
-    _build_problem_params,
+    build_problem_params,
 )
 
 
@@ -35,7 +35,7 @@ class _MultiFrameSuperResParams:
 class MultiFrameSuperResInvProb(BaseInvProb):
 
     def get_invprob(self, invprob_config: InvProbConfig) -> InvProb:
-        params = _build_problem_params(
+        params = build_problem_params(
             _MultiFrameSuperResParams,
             invprob_config.params,
         )
