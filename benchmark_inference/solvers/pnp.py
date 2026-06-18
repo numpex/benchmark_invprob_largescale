@@ -37,6 +37,9 @@ class Solver(BaseSolver):
         "profiler_mode": ["custom"],
         "profiler_warmup": [0],
         "profiler_active": [0],
+        "profiler_trace_dir": [None],
+        "profiler_per_step": [True],
+        "profiler_repeat": [1],
     }
 
     def set_objective(
@@ -83,6 +86,9 @@ class Solver(BaseSolver):
         profiler = create_profiler(
             self.profiler_mode, device, self.name,
             warmup=self.profiler_warmup, active=self.profiler_active,
+            trace_dir=self.profiler_trace_dir,
+            per_step=self.profiler_per_step,
+            repeat=self.profiler_repeat,
         )
         with profiler:
             self._algo = PnPSolver(

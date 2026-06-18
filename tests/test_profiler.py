@@ -1,6 +1,29 @@
-import pytest
+from types import SimpleNamespace
 
-from toolsbench.profiler import create_profiler, NullProfiler, CustomProfiler
+import pytest
+import torch
+
+from toolsbench.profiler import (
+    create_profiler,
+    NullProfiler,
+    CustomProfiler,
+    TorchProfiler,
+)
+from toolsbench.profiler.torch_profiler import _group_by_key
+
+
+# CPU always; CUDA too when present. GitHub CI (ubuntu-latest) is CPU-only.
+DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+
+
+def _run_torch(p, n_iters, device="cpu"):
+    """Drive a TorchProfiler over n_iters, mimicking the PnP solver loop."""
+    with p:
+        for _ in range(n_iters):
+            with p.track_step("gradient"):
+                a = torch.randn(64, 64, device=device)
+                _ = a @ a
+            p.end_iteration()
 
 
 # ---------------------------------------------------------------------------
@@ -136,3 +159,112 @@ class TestCreateProfiler:
         p = create_profiler("custom", "cpu", "run", warmup=3, active=5)
         assert p._warmup == 3
         assert p._active == 5
+
+
+# ---------------------------------------------------------------------------
+# TorchProfiler
+# ---------------------------------------------------------------------------
+
+def _avg(key, cpu=0.0, dev=0.0, count=1, is_user=False):
+    return SimpleNamespace(
+        key=key, cpu_time_total=cpu, device_time_total=dev,
+        count=count, is_user_annotation=is_user,
+    )
+
+
+class TestTorchProfiler:
+
+    def test_factory_forwards_params(self):
+        p = create_profiler("torch", "cpu", "run", per_step=False, repeat=3)
+        assert isinstance(p, TorchProfiler)
+        assert p._per_step is False
+        assert p._repeat == 3
+
+    def test_trace_dir_with_per_step_true_raises(self):
+        with pytest.raises(ValueError, match="per_step=False"):
+            TorchProfiler(device="cpu", name="x", trace_dir="/tmp/tr", per_step=True)
+
+    def test_group_by_key_merges_two_views(self):
+        # CPU-view carries cpu_time (dev=0); CUDA-view carries dev_time (cpu=0).
+        avgs = [
+            _avg("denoise", cpu=100.0, dev=0.0, count=5, is_user=True),
+            _avg("denoise", cpu=0.0, dev=200.0, count=5),
+        ]
+        g = _group_by_key(avgs)["denoise"]
+        assert g["cpu_time"] == 100.0   # max() keeps real cpu time
+        assert g["dev_time"] == 0.0     # min() keeps the smaller dev value
+        assert g["count"] == 5          # min()
+        assert g["is_user"] is True     # OR
+
+    @pytest.mark.parametrize("device", DEVICES)
+    @pytest.mark.parametrize("per_step,expected", [(True, {0, 1, 2}), (False, {"agg"})])
+    def test_csv_iter_labels(self, tmp_path, monkeypatch, device, per_step, expected):
+        monkeypatch.chdir(tmp_path)
+        p = TorchProfiler(device=device, name="run", per_step=per_step)
+        _run_torch(p, n_iters=3, device=device)
+        p.finalize(None)
+        import pandas as pd
+        df = pd.read_csv(tmp_path / "outputs" / "run_gpu_metrics.csv")
+        assert set(df["iter"]) == expected
+
+    @pytest.mark.parametrize("device", DEVICES)
+    def test_window_records_only_active_iters(self, tmp_path, monkeypatch, device):
+        # warmup=1 skips iter 0; active=2 stops after iters 1,2 => iters 3,4 unrecorded.
+        monkeypatch.chdir(tmp_path)
+        p = TorchProfiler(device=device, name="run", warmup=1, active=2, per_step=True)
+        _run_torch(p, n_iters=5, device=device)
+        p.finalize(None)
+        import pandas as pd
+        df = pd.read_csv(tmp_path / "outputs" / "run_gpu_metrics.csv")
+        assert set(df["iter"]) == {1, 2}
+
+    def test_trace_written_without_op_rows(self, tmp_path, monkeypatch):
+        # warmup beyond the run => torch discards everything => no op rows, but the
+        # Chrome trace must still be exported (finalize reorder fix).
+        monkeypatch.chdir(tmp_path)
+        trace_dir = tmp_path / "traces"
+        p = TorchProfiler(device="cpu", name="run", warmup=100,
+                          per_step=False, trace_dir=str(trace_dir))
+        _run_torch(p, n_iters=2, device="cpu")
+        p.finalize(None)
+        assert not p._all_op_rows
+        assert (trace_dir / "rank_0.pt.trace.json").exists()
+
+    @pytest.mark.parametrize("device", DEVICES)
+    def test_metrics_mode_split(self, device):
+        p_true = TorchProfiler(device=device, name="t", per_step=True)
+        _run_torch(p_true, n_iters=2, device=device)
+        assert "gradient_cpu_sec" in p_true.get_current_metrics()
+
+        p_false = TorchProfiler(device=device, name="t", per_step=False)
+        _run_torch(p_false, n_iters=2, device=device)
+        assert set(p_false.get_current_metrics()) == {"total_time_sec", "max_gpu_mb"}
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+    def test_dev_time_views_equal_gpu(self):
+        """Codifies the investigation: key_averages() emits a CPU-view and a
+        CUDA-view per user section; cpu_time lives on one, self_device on the
+        other, and the two device_time_total values agree (min() is a safe tie-break)."""
+        x = torch.randn(1024, 1024, device="cuda")
+        sched = torch.profiler.schedule(wait=0, warmup=2, active=3, repeat=1)
+        with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA],
+            schedule=sched,
+        ) as prof:
+            for _ in range(5):
+                with torch.profiler.record_function("denoise"):
+                    y = x
+                    for _ in range(4):
+                        y = y @ x
+                prof.step()
+
+        views = [e for e in prof.key_averages()
+                 if e.is_user_annotation and e.key == "denoise"]
+        assert len(views) == 2
+        cpu_view = max(views, key=lambda e: e.cpu_time_total)
+        cuda_view = max(views, key=lambda e: e.self_device_time_total)
+        assert cpu_view is not cuda_view
+        assert cpu_view.cpu_time_total > 0 and cuda_view.cpu_time_total == 0
+        a, b = cpu_view.device_time_total, cuda_view.device_time_total
+        assert abs(a - b) <= 0.05 * max(a, b)  # equal within 5% (jitter)
