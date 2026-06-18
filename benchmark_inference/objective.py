@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 from benchopt import BaseObjective
 from deepinv.loss.metric import PSNR, SSIM, MSE
-from astropy.io import fits
+
 
 from toolsbench.utils import save_comparison_figure
 
@@ -23,11 +23,6 @@ class Objective(BaseObjective):
     """
 
     name = "reconstruction_objective"
-    requirements = [
-        "pip::torch",
-        "astropy",
-        "pip::git+https://github.com/deepinv/deepinv.git@main",
-    ]
 
     # The three methods below define the links between the Dataset,
     # the Objective and the Solver.
@@ -178,14 +173,14 @@ class Objective(BaseObjective):
                 vmax=self.max_pixel,
             )
 
-            reconstruction_np = (
-                reconstruction.detach().cpu().to(torch.float32).numpy().squeeze()
-            )
-            fits_path = Path(output_dir) / (
-                f"eval_{self.evaluation_count:04d}_reconstruction.fits"
-            )
-            fits_path.parent.mkdir(parents=True, exist_ok=True)
-            fits.PrimaryHDU(reconstruction_np).writeto(fits_path, overwrite=True)
+            # reconstruction_np = (
+            #     reconstruction.detach().cpu().to(torch.float32).numpy().squeeze()
+            # )
+            # fits_path = Path(output_dir) / (
+            #     f"eval_{self.evaluation_count:04d}_reconstruction.fits"
+            # )
+            # fits_path.parent.mkdir(parents=True, exist_ok=True)
+            # fits.PrimaryHDU(reconstruction_np).writeto(fits_path, overwrite=True)
 
         # Return value (primary metric for stopping criterion) and additional metrics
         result = dict(value=-asinh_psnr, psnr=psnr, ssim=ssim, mse=mse, asinh_psnr=asinh_psnr)

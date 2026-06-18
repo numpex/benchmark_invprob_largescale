@@ -40,9 +40,12 @@ class MultiFrameSuperResInvProb(BaseInvProb):
             invprob_config.params,
         )
         device = torch.device(invprob_config.device)
+        size = invprob_config.size
+        if isinstance(size, int):
+            size = (size, size)
         data = self._get_data(params).get_data(
             DataConfig(
-                size=invprob_config.size,
+                size=size,
                 batch_size=invprob_config.batch_size,
                 channels=invprob_config.channels,
                 data_type=invprob_config.data_type,
@@ -73,6 +76,7 @@ class MultiFrameSuperResInvProb(BaseInvProb):
     def _get_data(self, params: _MultiFrameSuperResParams) -> BaseData:
         data_sources: dict[str, Type[BaseData]] = {
             "synthetic": SyntheticData,
+            "highres_color_image": HighResColorImagingData,
             "highres_imaging": HighResColorImagingData,
         }
         key = params.data

@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "benchopt>=1.8",
     "numpy",
-    "torch",
+    "torch<2.10",
     "torchvision",
     "matplotlib",
     "plotly",
@@ -21,6 +21,7 @@ dependencies = [
     "requests",
     "submitit",
     "typing-extensions",
+    "astra-toolbox",
     "deepinv @ git+https://github.com/deepinv/deepinv.git@main",
     "simai-bench @ git+https://github.com/argonne-lcf/SimAI-Bench.git",
     "ray>=2.54.1",

@@ -4,7 +4,7 @@ objective:
 
 dataset:
   - simulated:
-      image_size: 128
+      image_size: 1024
       num_operators: 1
       noise_level: 0.01
       seed: 42
@@ -19,7 +19,7 @@ solver:
         [false, false, 0, 0, 0],
       ]
 
-max-runs: 1
+max-runs: 10
 n-repetitions: 1
 plot: false
 html: false
