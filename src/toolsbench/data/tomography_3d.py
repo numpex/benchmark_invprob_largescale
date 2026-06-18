@@ -40,8 +40,11 @@ class Tomography3D(BaseData):
             UserWarning,
             stacklevel=2,
         )
-        cache_path = self.download(Path(data_config.data_path))
-        dataset = torch.load(cache_path, weights_only=True)
+        dataset = load_torch_url(
+            self._URL,
+            data_path=Path(data_config.data_path),
+            filename=self._FILENAME,
+        )
         device = (
             torch.device(data_config.device)
             if isinstance(data_config.device, str)
@@ -143,3 +146,18 @@ class Tomography3D(BaseData):
             if value < 1024 or unit == units[-1]:
                 return f"{value:.1f} {unit}"
             value /= 1024
+
+
+def load_torch_url(
+    url: str,
+    data_path: str | Path = Path("./data"),
+    filename: str = Tomography3D._FILENAME,
+) -> dict[str, torch.Tensor]:
+    cache_path = Path(data_path) / filename
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    if not (cache_path.exists() and cache_path.stat().st_size > 0):
+        tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
+        if tmp_path.exists():
+            tmp_path.unlink()
+        Tomography3D._download_file(url, tmp_path, cache_path)
+    return torch.load(cache_path, weights_only=True)
