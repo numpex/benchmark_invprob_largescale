@@ -11,11 +11,11 @@ solver:
       denoiser_sigma: 0.01
       step_size: 0.1
       init_method: ["pseudo_inverse"]
-      distribute_physics, distribute_denoiser, patch_size, overlap, max_batch_size: [
-        [false, false, 0, 0, 0],
+      slurm_gres, slurm_ntasks_per_node, slurm_nodes, distribute_physics, distribute_denoiser, patch_size, overlap, max_batch_size: [
+        ["gpu:1", 1, 1, false, false, 0, 0, 0],
       ]
 
 max-runs: 10
 n-repetitions: 1
-plot: false
-html: false
+plot: true
+html: true

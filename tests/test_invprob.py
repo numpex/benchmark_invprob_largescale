@@ -88,7 +88,7 @@ class TestTomographyInvProb:
         )
 
         with patch(
-            "toolsbench.data.tomography_3d.load_torch_url",
+            "toolsbench.data.tomography_3d.Tomography3D._get_dataset",
             return_value=mock_tomo3d_dataset,
         ):
             with pytest.warns(UserWarning, match="size is ignored"):

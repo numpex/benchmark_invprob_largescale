@@ -40,11 +40,9 @@ class Tomography3D(BaseData):
             UserWarning,
             stacklevel=2,
         )
-        dataset = load_torch_url(
-            self._URL,
-            data_path=Path(data_config.data_path),
-            filename=self._FILENAME,
-        )
+
+        dataset = self._get_dataset(data_config)
+
         device = (
             torch.device(data_config.device)
             if isinstance(data_config.device, str)
@@ -68,6 +66,10 @@ class Tomography3D(BaseData):
         vecs = dataset["vecs"].to(device=device, dtype=dtype)
 
         return {"ground_truth": gt, "sinogram": sino, "vecs": vecs}
+    
+    def _get_dataset(self, data_config: DataConfig) -> dict[str, torch.Tensor]:
+        data_path = self.download(data_path=data_config.data_path)
+        return torch.load(data_path, weights_only=True)
 
     def download(self, data_path: str | Path = Path("./data")) -> Path:
         cache_path = Path(data_path) / self._FILENAME
@@ -146,18 +148,3 @@ class Tomography3D(BaseData):
             if value < 1024 or unit == units[-1]:
                 return f"{value:.1f} {unit}"
             value /= 1024
-
-
-def load_torch_url(
-    url: str,
-    data_path: str | Path = Path("./data"),
-    filename: str = Tomography3D._FILENAME,
-) -> dict[str, torch.Tensor]:
-    cache_path = Path(data_path) / filename
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    if not (cache_path.exists() and cache_path.stat().st_size > 0):
-        tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
-        if tmp_path.exists():
-            tmp_path.unlink()
-        Tomography3D._download_file(url, tmp_path, cache_path)
-    return torch.load(cache_path, weights_only=True)
