@@ -1,3 +1,35 @@
+"""Profiler backed by torch.profiler.
+
+Background — the raw torch.profiler data this module consumes
+============================================================
+After a profiling cycle, torch.profiler exposes the captured data two ways,
+and everything below is built on top of these:
+
+1. ``prof.key_averages()`` -> flat list of aggregated events, one+ per label.
+   Each entry has:
+     - ``key``                    : the op/section name (e.g. "aten::mm",
+                                     "gradient", "ProfilerStep*")
+     - ``cpu_time_total``         : total CPU time (us) for this key
+     - ``device_time_total``      : total GPU time (us) for this key
+     - ``count``                  : number of calls
+     - ``is_user_annotation``     : True if the key is one of OUR
+                                    record_function() labels (a "section"),
+                                    False for raw aten/cuda ops.
+   NOTE: every record_function label appears TWICE here — once as a CPU-view
+   entry and once as a CUDA-view entry. _group_by_key() merges the pair.
+
+2. ``prof.events()`` -> the raw event TREE (not aggregated). Each event has:
+     - the same fields as above, plus
+     - ``cpu_children``           : list of child events nested under it
+     - ``self_device_time_total`` : GPU time excluding children
+     - ``device_memory_usage`` / ``self_device_memory_usage`` (bytes)
+   Our record_function sections are the ``is_user_annotation=True`` nodes; the
+   ops they ran are their ``cpu_children``. We walk this tree to attribute ops
+   and communication time to the section that contains them.
+
+All times from torch are in MICROSECONDS; we divide by 1e6 for seconds and
+memory by 1024**2 for MB.
+"""
 from __future__ import annotations
 
 import os
@@ -151,21 +183,53 @@ def _op_rows_to_records(agg: dict, iter_label) -> list[dict]:
 class TorchProfiler(BenchProfiler):
     """Profiler backed by torch.profiler.profile.
 
-    CSV: tidy per-(iter, section, op) rows with cpu_sec, cuda_sec, self_cuda_sec, mem_mb.
-    Benchopt return: per-section _cuda_sec/_cpu_sec/_comm_sec, comm_cuda_sec,
-    total_time_sec, max_gpu_mb.
+    Wrapper lifecycle
+    -----------------
+    Use as a context manager around the iterative loop::
 
-    - per_step=True (default): one profiler cycle per iteration; real per-iteration values
-      in both CSV and benchopt. Adds per-iteration read overhead.
-    - per_step=False: torch schedule(warmup, active) used directly so torch handles
-      the window natively; CSV only (iter="agg", times are window totals);
-      benchopt gets total_time_sec and max_gpu_mb per iteration.
+        with TorchProfiler(device, name, warmup=2, active=5) as prof:
+            for i in range(n_iter):
+                with prof.track_step("gradient"):  # annotate a named sub-step
+                    ...
+                with prof.track_step("denoise"):
+                    ...
+                prof.end_iteration()               # advance profiler, record timing
+                metrics = prof.get_current_metrics()  # consumed by benchopt get_result()
+        prof.finalize(ctx)                         # write CSV / Chrome trace
+
+    ``track_step(name)`` wraps the block in ``torch.profiler.record_function(name)``,
+    stamping a user annotation on both CPU and CUDA timelines. Each named block becomes
+    a "section" in the output metrics and CSV.
+
+    ``end_iteration()`` calls ``prof.step()`` to advance the internal torch schedule,
+    syncs the GPU for accurate wall-clock timing, and snapshots peak GPU memory. It
+    populates ``_current_metrics`` only for iterations inside [warmup, warmup+active).
+
+    Operating modes
+    ---------------
+    per_step=True (default)
+        One torch.profiler cycle per iteration — the profiler is reset and re-read at
+        every ``end_iteration()`` via an ``on_trace_ready`` callback. Gives real
+        per-iteration values in both CSV and benchopt metrics. trace_dir is unsupported.
+
+    per_step=False
+        torch handles the warmup/active schedule natively; the profiler runs once across
+        the whole active window. CSV rows use ``iter="agg"`` (window totals). Benchopt
+        metrics (total_time_sec, max_gpu_mb) remain per-iteration. Supports trace_dir.
+
+    Outputs
+    -------
+    CSV  (``outputs/<name>_gpu_metrics.csv``)
+        Tidy rows keyed by (iter, section, op) with cpu_sec, cuda_sec, self_cuda_sec,
+        mem_mb, self_mem_mb, count — one row per (section, child-op) pair per iteration.
+
+    Benchopt metrics (``get_current_metrics()``)
+        ``{section}_cuda_sec``, ``{section}_cpu_sec``, ``{section}_comm_sec``,
+        ``comm_cuda_sec``, ``total_time_sec``, ``max_gpu_mb``.
 
     warmup/active bound the profiling window; outside it the run executes at full speed.
-
-    trace_dir (Chrome trace export) is supported only with per_step=False — per_step=True
-    resets the profiler each iteration, so a full trace cannot be captured and passing
-    trace_dir with per_step=True raises ValueError.
+    trace_dir raises ValueError with per_step=True (profiler is reset each iteration,
+    so a full Chrome trace cannot be captured in that mode).
 
     Parameters
     ----------
