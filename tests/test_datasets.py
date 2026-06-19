@@ -121,17 +121,27 @@ def mock_tomo3d_dataset():
     }
 
 
+def _mock_tomo3d_download(dataset):
+    def _write_dataset(_url, _tmp_path, cache_path):
+        torch.save(dataset, cache_path)
+
+    return patch(
+        "toolsbench.data.tomography_3d.Tomography3D._download_file",
+        side_effect=_write_dataset,
+    )
+
+
 class TestTomography3D:
 
     def test_output_keys(self, tmp_path, mock_tomo3d_dataset):
-        with patch("toolsbench.data.tomography_3d.load_torch_url", return_value=mock_tomo3d_dataset):
+        with _mock_tomo3d_download(mock_tomo3d_dataset):
             cfg = DataConfig(size=(50, 60, 60), data_path=str(tmp_path))
             with pytest.warns(UserWarning, match="size is ignored"):
                 data = Tomography3D().get_data(cfg)
         assert set(data.keys()) == {"ground_truth", "sinogram", "vecs"}
 
     def test_output_shapes(self, tmp_path, mock_tomo3d_dataset):
-        with patch("toolsbench.data.tomography_3d.load_torch_url", return_value=mock_tomo3d_dataset):
+        with _mock_tomo3d_download(mock_tomo3d_dataset):
             cfg = DataConfig(size=(50, 60, 60), batch_size=2, data_path=str(tmp_path))
             with pytest.warns(UserWarning):
                 data = Tomography3D().get_data(cfg)
@@ -140,13 +150,13 @@ class TestTomography3D:
         assert data["vecs"].shape == (80, 12)
 
     def test_warns_about_size(self, tmp_path, mock_tomo3d_dataset):
-        with patch("toolsbench.data.tomography_3d.load_torch_url", return_value=mock_tomo3d_dataset):
+        with _mock_tomo3d_download(mock_tomo3d_dataset):
             cfg = DataConfig(size=(64, 64, 64), data_path=str(tmp_path))
             with pytest.warns(UserWarning, match="size is ignored"):
                 Tomography3D().get_data(cfg)
 
     def test_output_dtype(self, tmp_path, mock_tomo3d_dataset):
-        with patch("toolsbench.data.tomography_3d.load_torch_url", return_value=mock_tomo3d_dataset):
+        with _mock_tomo3d_download(mock_tomo3d_dataset):
             cfg = DataConfig(size=(50, 60, 60), data_path=str(tmp_path), data_type=torch.float32)
             with pytest.warns(UserWarning):
                 data = Tomography3D().get_data(cfg)
@@ -155,7 +165,7 @@ class TestTomography3D:
         assert data["vecs"].dtype == torch.float32
 
     def test_device_transfer(self, tmp_path, mock_tomo3d_dataset):
-        with patch("toolsbench.data.tomography_3d.load_torch_url", return_value=mock_tomo3d_dataset):
+        with _mock_tomo3d_download(mock_tomo3d_dataset):
             cfg = DataConfig(size=(50, 60, 60), data_path=str(tmp_path), device="cpu")
             with pytest.warns(UserWarning):
                 data = Tomography3D().get_data(cfg)
@@ -163,9 +173,7 @@ class TestTomography3D:
             assert v.device.type == "cpu"
 
     def test_caching(self, tmp_path, mock_tomo3d_dataset):
-        with patch(
-            "toolsbench.data.tomography_3d.load_torch_url", return_value=mock_tomo3d_dataset
-        ) as mock_dl:
+        with _mock_tomo3d_download(mock_tomo3d_dataset) as mock_dl:
             cfg = DataConfig(size=(50, 60, 60), data_path=str(tmp_path))
             with pytest.warns(UserWarning):
                 Tomography3D().get_data(cfg)
@@ -173,4 +181,3 @@ class TestTomography3D:
             with pytest.warns(UserWarning):
                 Tomography3D().get_data(cfg)
         mock_dl.assert_called_once()
-

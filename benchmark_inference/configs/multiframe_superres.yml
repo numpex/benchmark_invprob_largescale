@@ -7,8 +7,8 @@ objective:
 
 # Dataset filters (with parameters) - smaller size for faster distributed test
 dataset:
-  - highres_color_image:
-      image_size: 2048
+  - multiframe_superres:
+      image_size: 1024
       num_operators: 8
       noise_level: 0.1
 

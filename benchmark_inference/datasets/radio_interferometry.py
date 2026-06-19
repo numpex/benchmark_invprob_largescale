@@ -54,6 +54,9 @@ class Dataset(BaseDataset):
             return False
 
         return True
+    
+    def prepare(self, env_name=None, **kwargs):
+        return
 
     def __init__(
         self,

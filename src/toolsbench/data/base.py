@@ -23,11 +23,12 @@ class BaseData(ABC):
     @abstractmethod
     def get_data(self, data_config: DataConfig) -> dict[str, torch.Tensor]:
         """Returns a batch of data with parameters specified in the data_config."""
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def download(self, data_path: str | Path = Path("./data")) -> Path:
         """Downloads the dataset if necessary."""
-        return Path(data_path)
+        ...
 
 
 class DeepinvData(BaseData, ABC):
