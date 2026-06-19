@@ -1,7 +1,8 @@
 import warnings
 import torch
 from pathlib import Path
-from deepinv.utils import load_torch_url
+
+import requests
 
 from toolsbench.data.base import BaseData, DataConfig
 
@@ -28,6 +29,8 @@ class Tomography3D(BaseData):
         "https://huggingface.co/datasets/romainvo/ct_examples"
         "/resolve/main/Walnut-CBCT_8.pt"
     )
+    _CHUNK_SIZE = 8 * 1024 * 1024
+    _PROGRESS_STEP = 128 * 1024 * 1024
 
     def get_data(self, data_config: DataConfig) -> dict[str, torch.Tensor]:
         warnings.warn(
@@ -37,7 +40,9 @@ class Tomography3D(BaseData):
             UserWarning,
             stacklevel=2,
         )
-        dataset = self._load_or_download_dataset(Path(data_config.data_path))
+
+        dataset = self._get_dataset(data_config)
+
         device = (
             torch.device(data_config.device)
             if isinstance(data_config.device, str)
@@ -61,13 +66,85 @@ class Tomography3D(BaseData):
         vecs = dataset["vecs"].to(device=device, dtype=dtype)
 
         return {"ground_truth": gt, "sinogram": sino, "vecs": vecs}
+    
+    def _get_dataset(self, data_config: DataConfig) -> dict[str, torch.Tensor]:
+        data_path = self.download(data_path=data_config.data_path)
+        return torch.load(data_path, weights_only=True)
 
-    def _load_or_download_dataset(self, data_dir: Path) -> dict[str, torch.Tensor]:
-        cache_path = data_dir / self._FILENAME
+    def download(self, data_path: str | Path = Path("./data")) -> Path:
+        cache_path = Path(data_path) / self._FILENAME
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        if cache_path.exists():
-            dataset = torch.load(cache_path, weights_only=True)
-        else:
-            dataset = load_torch_url(self._URL)
-            torch.save(dataset, cache_path)
-        return dataset
+        if cache_path.exists() and cache_path.stat().st_size > 0:
+            return cache_path
+
+        tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
+        if tmp_path.exists():
+            tmp_path.unlink()
+        self._download_file(self._URL, tmp_path, cache_path)
+        return cache_path
+
+    @classmethod
+    def _download_file(cls, url: str, tmp_path: Path, cache_path: Path) -> None:
+        print(f"\nDownloading tomography_3d data to {cache_path}", flush=True)
+        try:
+            with requests.get(url, stream=True, timeout=(10, 60)) as response:
+                response.raise_for_status()
+                total = int(response.headers.get("content-length") or 0)
+                if total:
+                    print(
+                        f"Expected download size: {cls._format_bytes(total)}",
+                        flush=True,
+                    )
+
+                downloaded = 0
+                next_report = cls._next_report_threshold(total)
+                with tmp_path.open("wb") as file:
+                    for chunk in response.iter_content(chunk_size=cls._CHUNK_SIZE):
+                        if not chunk:
+                            continue
+                        file.write(chunk)
+                        downloaded += len(chunk)
+                        if downloaded >= next_report:
+                            print(
+                                cls._format_progress(downloaded, total),
+                                flush=True,
+                            )
+                            next_report += cls._next_report_threshold(total)
+
+            tmp_path.replace(cache_path)
+            print(
+                f"Downloaded tomography_3d data: {cls._format_bytes(downloaded)}",
+                flush=True,
+            )
+        except Exception as exc:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise RuntimeError(
+                "Failed to download the tomography_3d Walnut dataset from "
+                f"{url}."
+            ) from exc
+
+    @classmethod
+    def _next_report_threshold(cls, total: int) -> int:
+        if total <= 0:
+            return cls._PROGRESS_STEP
+        return max(total // 20, cls._PROGRESS_STEP)
+
+    @staticmethod
+    def _format_progress(downloaded: int, total: int) -> str:
+        if total <= 0:
+            return f"Downloaded {Tomography3D._format_bytes(downloaded)}"
+        pct = 100.0 * downloaded / total
+        return (
+            f"Downloaded {Tomography3D._format_bytes(downloaded)} / "
+            f"{Tomography3D._format_bytes(total)} ({pct:.1f}%)"
+        )
+
+    @staticmethod
+    def _format_bytes(num_bytes: int) -> str:
+        units = ("B", "KiB", "MiB", "GiB", "TiB")
+        value = float(num_bytes)
+        for unit in units:
+            if value < 1024 or unit == units[-1]:
+                return f"{value:.1f} {unit}"
+            value /= 1024

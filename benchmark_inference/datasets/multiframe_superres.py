@@ -4,13 +4,15 @@
 from benchopt import BaseDataset, config
 from deepinv.distributed import DistributedContext
 
+from toolsbench.data import check_installed
 from toolsbench.invprob import MultiFrameSuperResInvProb, InvProbConfig
 from toolsbench.utils import save_measurements_figure, setup_distributed_env
 
 
 class Dataset(BaseDataset):
     # Name of the Dataset, used to select it in the CLI
-    name = "simulated"
+    name = "multiframe_superres"
+    prepare_cache_ignore = "all"
 
     parameters = {
         "image_size": [2048],
@@ -22,7 +24,7 @@ class Dataset(BaseDataset):
     }
 
     def prepare(self):
-        return
+        check_installed("highres_color_image", config.get_data_path(key="multiframe_superres"))
 
     def get_data(self):
         """Load the data for this Dataset.
@@ -45,14 +47,14 @@ class Dataset(BaseDataset):
                 batch_size=self.batch_size,
                 channels=self.channels,
                 device=device,
-                data_path=config.get_data_path(key="simulated"),
+                data_path=config.get_data_path(key="multiframe_superres"),
                 params={
                     "num_frames": self.num_operators,
                     "scale_factor": 2,
                     "noise_std": self.noise_level,
                     "blur_kernel_size": 5,
                     "blur_sigma": 1.0,
-                    "data": "synthetic",
+                    "data": "highres_color_image",
                 },
             )
 
@@ -63,7 +65,7 @@ class Dataset(BaseDataset):
                 save_measurements_figure(
                     invprob.ground_truth,
                     invprob.measurements,
-                    filename="simulated.png",
+                    filename="multiframe_superres.png",
                 )
 
         return invprob

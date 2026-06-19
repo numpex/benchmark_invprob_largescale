@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 
 from toolsbench.data.base import BaseData, DataConfig
@@ -12,8 +14,12 @@ class SyntheticData(BaseData):
         )
         return {"data": img.repeat(data_config.batch_size, *([1] * (img.ndim - 1)))}
 
+    def download(self, data_path: str | Path = Path("./data")) -> Path:
+        """No download needed for synthetic data."""
+        return Path(data_path)
+
     def _generate_synthetic_signal(
-        self, device: torch.device, size: tuple[int, ...], channels: int, dtype: torch.dtype
+        self, device: torch.device, size: int | tuple[int, ...], channels: int, dtype: torch.dtype
     ) -> torch.Tensor:
         """Generate a synthetic n-dimensional signal with geometric patterns.
 
@@ -24,8 +30,8 @@ class SyntheticData(BaseData):
         ----------
         device : torch.device
             Device to create the tensor on.
-        size : tuple[int, ...]
-            Spatial dimensions (d1, d2, ..., dn).
+        size : int | tuple[int, ...]
+            Spatial dimensions (d1, d2, ..., dn) or a single integer for square 2d images.
         channels : int
             Number of channels.
         dtype : torch.dtype
@@ -36,6 +42,8 @@ class SyntheticData(BaseData):
         torch.Tensor
             Synthetic signal of shape (1, channels, d1, d2, ..., dn).
         """
+        if isinstance(size, int):
+            size = (size, size)
         ndim = len(size)
 
         # Build normalised coordinate grids in [-1, 1] for each spatial dimension
