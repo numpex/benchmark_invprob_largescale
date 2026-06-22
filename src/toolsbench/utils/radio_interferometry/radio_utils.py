@@ -116,7 +116,12 @@ def get_meerkat_visibilities_path(
     start_frequency_hz: float = 100e6,
     end_frequency_hz: float = 120e6,
     number_of_channels: int = 12,
+    pos_ra: float = 155.66367,
+    pos_dec: float = -30.7130,
     random_position: bool = False,
+    add_noise: bool = False,
+    pol_mode: str = "Full",
+    use_gpus: bool = False,
 ):
     """
     Generate path for MeerKAT visibilities.
@@ -128,7 +133,12 @@ def get_meerkat_visibilities_path(
         "start_frequency_hz": start_frequency_hz,
         "end_frequency_hz": end_frequency_hz,
         "number_of_channels": number_of_channels,
+        "pos_ra": pos_ra,
+        "pos_dec": pos_dec,
         "random_position": random_position,
+        "add_noise": add_noise,
+        "pol_mode": pol_mode,
+        "use_gpus": use_gpus,
         "imaging_npixel": imaging_npixel,
     }
     params_str = str(sorted(params.items()))

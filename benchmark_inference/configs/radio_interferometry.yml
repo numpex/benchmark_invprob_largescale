@@ -1,0 +1,46 @@
+objective:
+  - reconstruction_objective
+
+dataset:
+  - radio_interferometry:
+      image_size: 256
+      fits_size: "1024"
+      noise_level: 0.1
+      seed: 42
+      pos_ra: 0.0
+      pos_dec: 0.0
+      random_position: true
+      use_gpus: true
+      number_of_time_steps: 64
+      start_frequency_hz: 1.300e9
+      end_frequency_hz: 1.340e9
+      number_of_channels: 8
+      add_noise: true
+      pol_mode: Full
+      run_on_slurm: false
+      slurm_folder: debug_output/slurm_logs
+      slurm_job_name: karabo_simulator
+      slurm_nodes: 1
+      slurm_ntasks_per_node: 1
+      slurm_cpus_per_task: 40
+      slurm_gres: gpu:4
+      slurm_time: 60
+      slurm_hint: nomultithread
+      slurm_account: null
+      slurm_constraint: v100-32g
+      slurm_poll_interval_seconds: 30
+      slurm_wait_timeout_seconds: 1200
+      slurm_setup: |-
+        module purge
+        module load singularity
+        set -x
+
+solver:
+  - PnP:
+      denoiser: drunet
+      distribute_physics: false
+      distribute_denoiser: false
+      init_method: adjoint
+      norm_strategy: dynamic
+      slurm_gres, slurm_ntasks_per_node, distribute_physics, distribute_denoiser, patch_size, denoiser_sigma:
+        - ["gpu:0", 4, true, true, [128], 0.001]

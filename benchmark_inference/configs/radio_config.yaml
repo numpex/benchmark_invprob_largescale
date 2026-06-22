@@ -3,10 +3,12 @@ objective:
 
 dataset:
   - radio_interferometry:
-      fits_name : "RA_18.7117_DEC_0.3194_size_1024.fits"
-      image_size: 1024
+      image_size: 256
+      fits_size: "1024"
       noise_level: 0.1
-      simulator_hash: "892471111a25f7dda75b0f4670d43bfb"
+      seed: 42
+      use_gpus: true
+      number_of_time_steps: 64
 
 solver:
   - PnP:
