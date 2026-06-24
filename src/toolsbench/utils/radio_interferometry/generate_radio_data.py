@@ -6,8 +6,8 @@ from astropy.io import fits
 # Add src directory to sys.path to resolve toolsbench imports when run as script.
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from toolsbench.utils.karabo_utils import generate_meerkat_visibilities
-from toolsbench.utils.radio_utils import (
+from toolsbench.utils.radio_interferometry.karabo_utils import generate_meerkat_visibilities
+from toolsbench.utils.radio_interferometry.radio_utils import (
     load_and_resize_image,
     load_config,
     load_new_header,
