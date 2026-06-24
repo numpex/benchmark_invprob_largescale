@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import time
@@ -71,15 +70,6 @@ class _RadioInterferometryParams:
     slurm_setup: str | list[str] = "module purge\nmodule load singularity\nset -x"
 
 
-def get_karabo_image_path(repo_root: str | Path | None = None) -> Path:
-    allowed_dir = os.environ.get("SINGULARITY_ALLOWED_DIR")
-    if allowed_dir:
-        return Path(allowed_dir).expanduser() / "karabo.sif"
-    elif repo_root is not None:
-        return Path(repo_root) / "tools" / "karabo.sif"
-    return Path(__file__).resolve().parents[3] / "tools" / "karabo.sif"
-
-
 def get_meerkat_cache_dir(data_path: str | Path) -> Path:
     cache_dir = Path(data_path) / "meerkat_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -136,6 +126,8 @@ def get_radio_simulation_cache(
 def run_simulation(
     data_path: str | Path,
     params: Mapping[str, Any] | _RadioInterferometryParams | None = None,
+    karabo_image_path: str | Path | None = None,
+    host_workspace_path: str | Path | None = None,
     **kwargs: Any,
 ) -> RadioSimulationCache:
     """Ensure a Karabo MeerKAT simulation exists and return its cache paths."""
@@ -149,10 +141,26 @@ def run_simulation(
         return cache
 
     config = _simulation_config(data_path, radio_params, cache.source_fits_path)
+    if karabo_image_path is None:
+        raise ValueError("karabo_image_path must be provided to run a radio simulation.")
+    if host_workspace_path is None:
+        raise ValueError("host_workspace_path must be provided to run a radio simulation.")
+
     if radio_params.run_on_slurm:
-        _submit_slurm_job(config, radio_params, data_path)
+        _submit_slurm_job(
+            config,
+            radio_params,
+            data_path,
+            karabo_image_path=karabo_image_path,
+            host_workspace_path=host_workspace_path,
+        )
     else:
-        _run_container(config, data_path)
+        _run_container(
+            config,
+            data_path,
+            karabo_image_path=karabo_image_path,
+            host_workspace_path=host_workspace_path,
+        )
 
     cache = get_radio_simulation_cache(data_path, radio_params)
     if not cache.is_complete:
@@ -296,15 +304,16 @@ def _simulation_config(
 def _container_paths(
     host_data_path: str | Path,
     config: dict[str, Any],
+    host_workspace_path: str | Path,
 ) -> tuple[list[str], str, str]:
-    repo_root = get_repo_root()
+    host_workspace_path = Path(host_workspace_path).resolve()
     mount_point = "/workspace"
-    binds = ["-B", f"{repo_root}:{mount_point}"]
+    binds = ["-B", f"{host_workspace_path}:{mount_point}"]
 
     host_data_path = Path(host_data_path).resolve()
     host_data_path.mkdir(parents=True, exist_ok=True)
     try:
-        rel = host_data_path.relative_to(repo_root)
+        rel = host_data_path.relative_to(host_workspace_path)
         container_data_path = f"{mount_point}/{rel}"
     except ValueError:
         container_data_path = "/benchmark_data"
@@ -314,9 +323,14 @@ def _container_paths(
     return binds, mount_point, "/workspace/benchmark_inference"
 
 
-def _run_container(config: dict[str, Any], host_data_path: str | Path) -> None:
-    repo_root = get_repo_root()
-    image_path = get_karabo_image_path(repo_root)
+def _run_container(
+    config: dict[str, Any],
+    host_data_path: str | Path,
+    karabo_image_path: str | Path,
+    host_workspace_path: str | Path,
+) -> None:
+    host_workspace_path = Path(host_workspace_path).resolve()
+    image_path = Path(karabo_image_path).expanduser().resolve()
     if not image_path.exists():
         raise FileNotFoundError(
             f"Karabo container image not found at {image_path}. "
@@ -328,14 +342,18 @@ def _run_container(config: dict[str, Any], host_data_path: str | Path) -> None:
         raise RuntimeError("Neither apptainer nor singularity is available.")
 
     config = {"job": dict(config["job"])}
-    binds, mount_point, working_dir = _container_paths(host_data_path, config)
+    binds, mount_point, working_dir = _container_paths(
+        host_data_path,
+        config,
+        host_workspace_path,
+    )
 
-    cache_dir = repo_root / "debug_output" / "cache"
-    mpl_dir = repo_root / "debug_output" / "mpl_cache"
+    cache_dir = host_workspace_path / "debug_output" / "cache"
+    mpl_dir = host_workspace_path / "debug_output" / "mpl_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     mpl_dir.mkdir(parents=True, exist_ok=True)
 
-    tmp_dir = repo_root / "debug_output"
+    tmp_dir = host_workspace_path / "debug_output"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     tmp_config_host = tmp_dir / "_run_radio_simulation_config.yaml"
     with tmp_config_host.open("w", encoding="utf-8") as fh:
@@ -370,6 +388,8 @@ def _submit_slurm_job(
     config: dict[str, Any],
     params: _RadioInterferometryParams,
     host_data_path: str | Path,
+    karabo_image_path: str | Path,
+    host_workspace_path: str | Path,
 ) -> None:
     try:
         import submitit
@@ -378,7 +398,7 @@ def _submit_slurm_job(
 
     folder = Path(params.slurm_folder)
     if not folder.is_absolute():
-        folder = get_repo_root() / folder
+        folder = Path(host_workspace_path).resolve() / folder
     folder.mkdir(parents=True, exist_ok=True)
 
     executor = submitit.AutoExecutor(folder=str(folder))
@@ -408,7 +428,13 @@ def _submit_slurm_job(
 
     executor.update_parameters(**kwargs)
     print(f"Submitting radio simulation Slurm job with parameters: {kwargs}", flush=True)
-    job = executor.submit(_run_container, config, host_data_path)
+    job = executor.submit(
+        _run_container,
+        config,
+        host_data_path,
+        karabo_image_path,
+        host_workspace_path,
+    )
     print(f"Submitted radio simulation job {job.job_id}.", flush=True)
 
     deadline = time.time() + int(params.slurm_wait_timeout_seconds)

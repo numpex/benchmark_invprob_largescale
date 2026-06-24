@@ -19,9 +19,8 @@ load_singularity_module() {
 }
 
 # 1. Check for apptainer / singularity
-if ! command -v apptainer &> /dev/null && ! command -v singularity &> /dev/null; then
-    load_singularity_module || true
-fi
+# On Jean Zay, loading this module also exposes SINGULARITY_ALLOWED_DIR.
+load_singularity_module || true
 if ! command -v apptainer &> /dev/null && ! command -v singularity &> /dev/null; then
     log "Error: apptainer or singularity could not be found (even after module load)."
     exit 1
@@ -59,7 +58,6 @@ fi
 
 # Jean Zay: copy image to the singularity-allowed directory if needed.
 if [[ -n "${SINGULARITY_ALLOWED_DIR:-}" ]]; then
-    load_singularity_module || true
     TARGET_IMAGE="${SINGULARITY_ALLOWED_DIR%/}/${IMAGE_NAME}"
     log "SINGULARITY_ALLOWED_DIR='$SINGULARITY_ALLOWED_DIR' — ensuring image is at $TARGET_IMAGE"
     mkdir -p "$SINGULARITY_ALLOWED_DIR"

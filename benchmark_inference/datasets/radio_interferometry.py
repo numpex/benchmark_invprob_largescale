@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from benchopt import BaseDataset, config
@@ -10,8 +12,46 @@ from deepinv.distributed import DistributedContext
 
 from toolsbench.data import check_installed
 from toolsbench.invprob import InvProbConfig, RadioInterferometryInvProb
-from toolsbench.invprob.radio_interferometry import get_karabo_image_path, run_simulation
+from toolsbench.invprob.radio_interferometry import run_simulation
 from toolsbench.utils import setup_distributed_env
+
+
+BENCHMARK_DIR = Path(__file__).resolve().parents[1]
+HOST_WORKSPACE_PATH = BENCHMARK_DIR.parent
+KARABO_IMAGE_PATH = BENCHMARK_DIR / "tools" / "karabo.sif"
+
+
+def _singularity_allowed_dir() -> Path | None:
+    allowed_dir = os.environ.get("SINGULARITY_ALLOWED_DIR")
+    if allowed_dir:
+        return Path(allowed_dir).expanduser()
+
+    try:
+        result = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "module load singularity >/dev/null 2>&1 && "
+                'printf "%s" "${SINGULARITY_ALLOWED_DIR:-}"',
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+
+    allowed_dir = result.stdout.strip()
+    if result.returncode == 0 and allowed_dir:
+        return Path(allowed_dir).expanduser()
+    return None
+
+
+def _karabo_image_path() -> Path:
+    allowed_dir = _singularity_allowed_dir()
+    if allowed_dir:
+        return allowed_dir / "karabo.sif"
+    return KARABO_IMAGE_PATH
 
 
 class Dataset(BaseDataset):
@@ -71,13 +111,20 @@ class Dataset(BaseDataset):
 
     @classmethod
     def is_installed(cls, env_name=None, quiet=True, **kwargs):
+        if _singularity_allowed_dir():
+            return _karabo_image_path().exists()
         runtime_available = bool(shutil.which("apptainer") or shutil.which("singularity"))
-        return runtime_available and get_karabo_image_path().exists()
-    
+        return runtime_available and _karabo_image_path().exists()
+
     def prepare(self, env_name=None, **kwargs):
         data_path = Path(config.get_data_path(key="radio_interferometry"))
         check_installed("radio_interferometry", data_path)
-        cache = run_simulation(data_path, params=self._invprob_params())
+        cache = run_simulation(
+            data_path,
+            params=self._invprob_params(),
+            karabo_image_path=_karabo_image_path(),
+            host_workspace_path=HOST_WORKSPACE_PATH,
+        )
         print(
             f"Radio simulation ready: simulator_hash={cache.simulation_hash}",
             flush=True,
