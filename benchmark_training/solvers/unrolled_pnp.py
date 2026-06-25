@@ -28,8 +28,6 @@ class Solver(BaseSolver):
         "init_stepsize": [0.8],
         "denoiser_sigma": [0.05],
         # --- Optimizer ---
-        "learning_rate": [1e-5],
-        "model_learning_rate": [1e-5],
         "train_algo_params": [True],
         "lambda_relaxation": [False],
         "grad_clip": [1.0],
@@ -114,8 +112,6 @@ class Solver(BaseSolver):
                 n_iter=self.n_iter,
                 init_stepsize=self.init_stepsize,
                 denoiser_sigma=self.denoiser_sigma,
-                learning_rate=self.learning_rate,
-                model_learning_rate=self.model_learning_rate,
                 train_algo_params=self.train_algo_params,
                 lambda_relaxation=self.lambda_relaxation,
                 grad_clip=self.grad_clip,

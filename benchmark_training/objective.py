@@ -9,7 +9,7 @@ also forwards ``ground_truth`` so the supervised training loss can use it.
 
 import torch
 from benchopt import BaseObjective
-from deepinv.loss.metric import PSNR, SSIM, MSE
+from deepinv.loss.metric import PSNR
 
 from toolsbench.utils import save_comparison_figure
 
@@ -58,8 +58,6 @@ class Objective(BaseObjective):
         )
         self.num_operators = num_operators if num_operators is not None else 1
         self.psnr_metric = PSNR(max_pixel=max_pixel)
-        self.ssim_metric = SSIM(max_pixel=max_pixel)
-        self.mse_metric = MSE()
         self.min_pixel = min_pixel
         self.max_pixel = max_pixel
         self.evaluation_count = 0
@@ -96,8 +94,7 @@ class Objective(BaseObjective):
         Returns
         -------
         dict
-            ``value`` (negative PSNR for minimization), ``psnr``, ``ssim``,
-            ``mse`` plus any forwarded metrics.
+            ``value`` (negative PSNR for minimization), ``psnr`` plus any forwarded metrics.
         """
         with torch.no_grad():
             reconstruction = reconstruction.to(self.ground_truth.device)
@@ -109,23 +106,10 @@ class Objective(BaseObjective):
             )
 
             psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
-            ssim_tensor = self.ssim_metric(reconstruction, ground_truth)
-            mse_tensor = self.mse_metric(reconstruction, ground_truth)
-
             psnr = (
                 psnr_tensor.mean().item()
                 if psnr_tensor.numel() > 1
                 else psnr_tensor.item()
-            )
-            ssim = (
-                ssim_tensor.mean().item()
-                if ssim_tensor.numel() > 1
-                else ssim_tensor.item()
-            )
-            mse = (
-                mse_tensor.mean().item()
-                if mse_tensor.numel() > 1
-                else mse_tensor.item()
             )
 
             output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
@@ -133,7 +117,7 @@ class Objective(BaseObjective):
             save_comparison_figure(
                 self.ground_truth,
                 reconstruction,
-                metrics={"psnr": psnr, "ssim": ssim, "mse": mse},
+                metrics={"psnr": psnr},
                 output_dir=output_dir,
                 filename=f"eval_{self.evaluation_count:04d}.png",
                 evaluation_count=self.evaluation_count,
@@ -141,7 +125,7 @@ class Objective(BaseObjective):
                 vmax=self.max_pixel,
             )
 
-        result = dict(value=-psnr, psnr=psnr, ssim=ssim, mse=mse)
+        result = dict(value=-psnr, psnr=psnr)
         for key, value in kwargs.items():
             if value is not None:
                 result[key] = value
