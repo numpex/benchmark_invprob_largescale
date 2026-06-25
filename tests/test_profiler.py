@@ -185,16 +185,16 @@ class TestTorchProfiler:
             TorchProfiler(device="cpu", name="x", trace_dir="/tmp/tr", per_step=True)
 
     def test_group_by_key_merges_two_views(self):
-        # CPU-view carries cpu_time (dev=0); CUDA-view carries dev_time (cpu=0).
+        # CPU-view carries cpu_time; CUDA-view carries the accurate dev_time.
         avgs = [
             _avg("denoise", cpu=100.0, dev=0.0, count=5, is_user=True),
             _avg("denoise", cpu=0.0, dev=200.0, count=5),
         ]
         g = _group_by_key(avgs)["denoise"]
-        assert g["cpu_time"] == 100.0   # max() keeps real cpu time
-        assert g["dev_time"] == 0.0     # min() keeps the smaller dev value
-        assert g["count"] == 5          # min()
-        assert g["is_user"] is True     # OR
+        assert g["cpu_time"] == 100.0   # from CPU-view
+        assert g["dev_time"] == 200.0   # CUDA-view wins over CPU-view fallback
+        assert g["count"] == 5
+        assert g["is_user"] is True
 
     @pytest.mark.parametrize("device", DEVICES)
     @pytest.mark.parametrize("per_step,expected", [(True, {0, 1, 2}), (False, {"agg"})])

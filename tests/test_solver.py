@@ -2,8 +2,10 @@ import pytest
 import torch
 from unittest.mock import MagicMock, patch
 
+from toolsbench.invprob.base import InvProb
 from toolsbench.profiler import NullProfiler
-from toolsbench.solver.pnp import PnPSolver, SolverObjective
+from toolsbench.solver.pnp import PnPSolver
+from toolsbench.solver.unrolled_pnp import UnrolledPnPSolver
 
 
 # ---------------------------------------------------------------------------
@@ -12,13 +14,46 @@ from toolsbench.solver.pnp import PnPSolver, SolverObjective
 
 def _make_objective(**kwargs):
     defaults = dict(
-        measurement=torch.zeros(1, 1, 8, 8),
+        ground_truth=torch.zeros(1, 1, 8, 8),
+        measurements=torch.zeros(1, 1, 8, 8),
         physics=MagicMock(),
         ground_truth_shape=torch.Size([1, 1, 8, 8]),
         num_operators=1,
     )
     defaults.update(kwargs)
-    return SolverObjective(**defaults)
+    return InvProb(**defaults)
+
+
+def _make_unrolled_solver(**kwargs):
+    defaults = dict(
+        problem=_make_objective(),
+        device=torch.device("cpu"),
+        profiler=NullProfiler(),
+        ctx=None,
+        distributed_mode=False,
+        denoiser="drunet",
+        n_iter=2,
+        init_stepsize=0.8,
+        denoiser_sigma=0.05,
+        learning_rate=1e-5,
+        model_learning_rate=1e-5,
+        train_algo_params=True,
+        lambda_relaxation=False,
+        grad_clip=1.0,
+        distribute_model=False,
+        patch_size=128,
+        overlap=32,
+        max_batch_size=1,
+        checkpoint_batches="auto",
+    )
+    defaults.update(kwargs)
+    return UnrolledPnPSolver(**defaults)
+
+
+def _mock_denoiser():
+    m = MagicMock()
+    m.parameters.return_value = [torch.nn.Parameter(torch.zeros(1))]
+    return m
 
 
 def _make_solver(**attrs):
@@ -173,6 +208,61 @@ class TestPnPSolverGetResult:
 
     def test_includes_profiler_metrics(self):
         solver = _make_solver(reconstruction=torch.ones(1, 1, 4, 4))
+        solver.profiler = MagicMock()
+        solver.profiler.get_current_metrics.return_value = {
+            "total_time_sec": 0.5,
+            "max_gpu_mb": 100.0,
+        }
+        result = solver.get_result()
+        assert result["total_time_sec"] == 0.5
+        assert result["max_gpu_mb"] == 100.0
+
+
+# ---------------------------------------------------------------------------
+# UnrolledPnPSolver._setup_components / _setup_optimizer
+# ---------------------------------------------------------------------------
+
+class TestUnrolledPnPSolverSetupComponents:
+
+    def test_returns_pgd_model_and_denoiser_params(self):
+        from deepinv.optim import PGD
+        solver = _make_unrolled_solver()
+        with patch("toolsbench.solver.unrolled_pnp.create_drunet_denoiser", return_value=_mock_denoiser()):
+            model, denoiser_params = solver._setup_components()
+        assert isinstance(model, PGD)
+        assert isinstance(denoiser_params, list)
+
+    def test_unknown_denoiser_raises(self):
+        solver = _make_unrolled_solver(denoiser="unknown")
+        with pytest.raises(ValueError, match="Unknown denoiser"):
+            solver._setup_components()
+
+    def test_setup_optimizer_with_algo_params(self):
+        solver = _make_unrolled_solver(train_algo_params=True)
+        with patch("toolsbench.solver.unrolled_pnp.create_drunet_denoiser", return_value=_mock_denoiser()):
+            _, denoiser_params = solver._setup_components()
+        optimizer = solver._setup_optimizer(denoiser_params)
+        assert isinstance(optimizer, torch.optim.Adam)
+        assert len(optimizer.param_groups) == 2
+
+    def test_setup_optimizer_without_algo_params(self):
+        solver = _make_unrolled_solver(train_algo_params=False)
+        with patch("toolsbench.solver.unrolled_pnp.create_drunet_denoiser", return_value=_mock_denoiser()):
+            _, denoiser_params = solver._setup_components()
+        optimizer = solver._setup_optimizer(denoiser_params)
+        assert isinstance(optimizer, torch.optim.Adam)
+        assert len(optimizer.param_groups) == 1
+
+
+# ---------------------------------------------------------------------------
+# UnrolledPnPSolver.get_result
+# ---------------------------------------------------------------------------
+
+class TestUnrolledPnPSolverGetResult:
+
+    def test_includes_profiler_metrics(self):
+        solver = _make_unrolled_solver()
+        solver.reconstruction = torch.ones(1, 1, 4, 4)
         solver.profiler = MagicMock()
         solver.profiler.get_current_metrics.return_value = {
             "total_time_sec": 0.5,

@@ -29,7 +29,7 @@ class Objective(BaseObjective):
     def set_data(
         self,
         ground_truth,
-        measurement,
+        measurements,
         physics,
         min_pixel=0.0,
         max_pixel=1.0,
@@ -43,7 +43,7 @@ class Objective(BaseObjective):
         ----------
         ground_truth : torch.Tensor
             Ground truth image.
-        measurement : torch.Tensor or TensorList
+        measurements : torch.Tensor or TensorList
             Noisy measurements.
         physics : Physics
             Forward operator.
@@ -59,7 +59,7 @@ class Objective(BaseObjective):
             Extra dataset-specific parameters forwarded to the solver
         """
         self.ground_truth = ground_truth
-        self.measurement = measurement
+        self.measurements = measurements
         self.physics = physics
         self._extra_kwargs = kwargs
         self.ground_truth_shape = (
@@ -82,7 +82,7 @@ class Objective(BaseObjective):
             Dictionary with measurement, physics, and metadata.
         """
         return dict(
-            measurement=self.measurement,
+            measurements=self.measurements,
             physics=self.physics,
             ground_truth_shape=self.ground_truth_shape,
             num_operators=self.num_operators,

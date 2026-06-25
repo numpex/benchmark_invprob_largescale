@@ -1,8 +1,9 @@
 from benchopt import BaseSolver
 from deepinv.distributed import DistributedContext
 
+from toolsbench.invprob.base import InvProb
 from toolsbench.profiler import create_profiler
-from toolsbench.solver.pnp import PnPSolver, SolverObjective
+from toolsbench.solver.pnp import PnPSolver
 from toolsbench.utils.solver_utils import (
     build_solver_name,
     get_device_from_context,
@@ -44,22 +45,23 @@ class Solver(BaseSolver):
 
     def set_objective(
         self,
-        measurement,
+        measurements,
         physics,
         ground_truth_shape,
         num_operators,
         min_pixel=0.0,
         max_pixel=1.0,
         weights=None,
+        **kwargs,
     ):
-        self.problem = SolverObjective(
-            measurement=measurement,
+        self.problem = InvProb(
+            measurements=measurements,
             physics=physics,
             ground_truth_shape=ground_truth_shape,
             num_operators=num_operators,
             min_pixel=min_pixel,
             max_pixel=max_pixel,
-            weights=weights,
+            invprob_kwargs={"weights": weights} if weights is not None else None,
         )
         self.ctx = None
         self._algo = None

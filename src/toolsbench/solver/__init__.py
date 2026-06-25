@@ -1,1 +1,2 @@
-from .pnp import PnPSolver as PnPSolver, SolverObjective as SolverObjective
+from .pnp import PnPSolver as PnPSolver
+from .unrolled_pnp import BenchTrainer as BenchTrainer, UnrolledPnPSolver as UnrolledPnPSolver

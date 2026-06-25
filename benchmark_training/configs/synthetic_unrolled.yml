@@ -1,0 +1,31 @@
+# Lightweight configuration for the synthetic unrolled-training smoke test.
+objective:
+  - reconstruction_objective
+
+dataset:
+  - synthetic:
+      image_size: 1024
+      num_operators: 4
+      channels: 3
+      noise_level: 0.1
+      seed: 42
+
+solver:
+  - UnrolledPnP:
+      denoiser: drunet
+      n_iter: 3
+      init_stepsize: 0.8
+      denoiser_sigma: 0.05
+      train_algo_params: true
+      grad_clip: 1.0
+      profiler_mode: [custom]
+      profiler_per_step: [True]
+      slurm_gres, slurm_ntasks_per_node, slurm_nodes, distribute_model, patch_size, overlap, max_batch_size, checkpoint_batches: [
+        ["gpu:1", 1, 1,  false, 0, 0, 0, 'never'],
+        ["gpu:2", 2, 1,  true, 256, 32, 4, 'always'],
+      ]
+
+max-runs: 8
+n-repetitions: 1
+plot: true
+html: true

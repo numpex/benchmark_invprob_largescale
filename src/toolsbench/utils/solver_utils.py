@@ -9,7 +9,15 @@ from pathlib import Path
 
 import torch
 import copy
+from deepinv.utils import TensorList
 
+
+
+def measurement_to_device(measurement, device: torch.device):
+    """Move measurements to device, handling Tensor, list, and TensorList."""
+    if isinstance(measurement, (list, TensorList)):
+        return TensorList([m.to(device) for m in measurement])
+    return measurement.to(device)
 
 
 def initialize_reconstruction(

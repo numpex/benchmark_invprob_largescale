@@ -1,17 +1,15 @@
-from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable
 
 import torch
 from deepinv.distributed import distribute
 from deepinv.optim.data_fidelity import L2
 from deepinv.optim.prior import PnP
 from deepinv.physics import Physics, StackedPhysics, stack
-from deepinv.utils.tensorlist import TensorList
-
 from toolsbench.utils import create_drunet_denoiser
 from toolsbench.utils.solver_utils import (
     distributed_callback_iter,
     initialize_reconstruction,
+    measurement_to_device,
     sync_and_barrier,
 )
 
@@ -22,19 +20,6 @@ def compute_step_size_from_operator(operator, ground_truth: torch.Tensor) -> flo
         x_example = torch.zeros_like(ground_truth, device=ground_truth.device, dtype=ground_truth.dtype)
         lipschitz_constant = operator.compute_norm(x_example, local_only=False)
         return 1.0 / lipschitz_constant if lipschitz_constant > 0 else 1.0
-
-
-@dataclass
-class SolverObjective:
-    """Data handed to the inference solver via set_objective."""
-
-    measurement: torch.Tensor
-    physics: Physics | StackedPhysics | Callable
-    ground_truth_shape: torch.Size
-    num_operators: int
-    min_pixel: float = 0.0
-    max_pixel: float = 1.0
-    weights: Optional[torch.Tensor] = None
 
 
 
@@ -86,11 +71,7 @@ class PnPSolver:
         self.reconstruction = None
 
     def run(self, cb):
-        measurement = self.problem.measurement
-        if hasattr(measurement, "to"):
-            measurement = measurement.to(self.device)
-        elif isinstance(measurement, list):
-            measurement = TensorList([m.to(self.device) for m in measurement])
+        measurement = measurement_to_device(self.problem.measurements, self.device)
 
         if self.ctx is not None and self.distribute_physics:
             physics = distribute(
@@ -169,7 +150,7 @@ class PnPSolver:
                 device=self.device,
                 method=self.init_method,
                 clip_range=(self.problem.min_pixel, self.problem.max_pixel),
-                weights=self.problem.weights,
+                weights=self.problem.invprob_kwargs.get("weights") if self.problem.invprob_kwargs else None,
             )
 
     def _run_iterations(self, prior, data_fidelity, physics, measurements, step_size, cb):
