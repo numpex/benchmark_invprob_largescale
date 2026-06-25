@@ -63,29 +63,31 @@ def _is_comm_op(key: str) -> bool:
 def _group_by_key(avgs):
     """Merge CPU-view/CUDA-view duplicates from key_averages() into one entry per key.
 
-    torch.profiler emits two entries per record_function label: a CPU-view and a
-    CUDA-view. Merging rules (proven empirically):
-      - cpu_time : max() — CUDA-view always has cpu_time=0, CPU-view has the real value.
-      - dev_time : min() — CPU-view may sum all descendant kernel durations (inflated);
-                           CUDA-view measures actual GPU wall time (closer to ground truth).
-      - count    : min() — CPU-view sometimes over-counts internal bookkeeping calls.
+    torch.profiler emits two entries per record_function label:
+      - CPU-view  (cpu_time_total > 0): cpu_time is real; device_time is an inclusive
+                  DAG roll-up — inflated for tiled backward.
+      - CUDA-view (cpu_time_total == 0): device_time is the actual GPU span duration.
+
+    cpu_time from CPU-view; dev_time from CUDA-view (fallback: CPU-view device_time).
+    For tiled user sections (not comm ops), divide CUDA-view device_time by count to
+    recover per-call wall time. For comm ops, keep raw total (count = distinct tensors).
     """
-    grouped = defaultdict(
-        lambda: {"cpu_time": 0.0, "dev_time": float("inf"),
-                 "count": 10**9, "is_user": False}
-    )
+    grouped = defaultdict(lambda: {"cpu_time": 0.0, "dev_time": 0.0, "_cuda_dev": None, "count": 0, "is_user": False})
     for evt in avgs:
         g = grouped[evt.key]
-        g["cpu_time"] = max(g["cpu_time"], evt.cpu_time_total)
-        g["dev_time"] = min(g["dev_time"], evt.device_time_total)
-        g["count"]   = min(g["count"],   evt.count)
         g["is_user"] = g["is_user"] or evt.is_user_annotation
-    # replace sentinels with 0 for keys that only appeared in one view
+        g["count"]   = max(g["count"], evt.count)
+        if evt.cpu_time_total > 0:          # CPU-view
+            g["cpu_time"] = evt.cpu_time_total
+            g["dev_time"] = evt.device_time_total                        # fallback if no CUDA-view
+        elif evt.is_user_annotation and not _is_comm_op(evt.key) and evt.count > 0:
+            g["_cuda_dev"] = evt.device_time_total / evt.count           # tiled section: per-call
+        else:
+            g["_cuda_dev"] = evt.device_time_total                       # comm / non-user: total
     for g in grouped.values():
-        if g["dev_time"] == float("inf"):
-            g["dev_time"] = 0.0
-        if g["count"] == 10**9:
-            g["count"] = 0
+        cuda_dev = g.pop("_cuda_dev")
+        if cuda_dev is not None:
+            g["dev_time"] = cuda_dev        # CUDA-view wins over CPU-view fallback
     return grouped
 
 
@@ -120,15 +122,18 @@ def _section_summary(avgs, events=None) -> dict:
     section_names = []
     comm_cuda_sec = 0.0
     for key, g in grouped.items():
-        if g["count"] <= 0 or key.startswith("ProfilerStep"):
+        # Skip torch's own annotations (schedule marker + optimizer, which
+        # torch.optim auto-wraps in a record_function) so only our sections show.
+        if g["count"] <= 0 or key.startswith(("ProfilerStep", "Optimizer")):
             continue
         if g["is_user"] and not _is_comm_op(key):
             # user-annotated section (gradient, denoise, ...): emit cuda/cpu time
             out[f"{key}_cuda_sec"] = round(g["dev_time"] / 1e6, 6)
             out[f"{key}_cpu_sec"]  = round(g["cpu_time"] / 1e6, 6)
             section_names.append(key)
-        elif _is_comm_op(key):
-            # accumulate iteration-level communication total
+        elif _is_comm_op(key) and g["is_user"]:
+            # accumulate iteration-level communication total; is_user=True filters to
+            # nccl:* annotations and avoids double-counting c10d::* CPU-view duplicates
             comm_cuda_sec += g["dev_time"] / 1e6
     if events is not None and section_names:
         # per-section comm time: walk the raw event tree to attribute comm to its section
@@ -146,7 +151,8 @@ def _collect_op_rows(events) -> dict:
     for e in events:
         if not getattr(e, "is_user_annotation", False):
             continue
-        if e.key.startswith("ProfilerStep") or _is_comm_op(e.key):
+        # Skip torch's own annotations (schedule marker + auto-wrapped optimizer).
+        if e.key.startswith(("ProfilerStep", "Optimizer")) or _is_comm_op(e.key):
             continue
         children = getattr(e, "cpu_children", None)
         if not children:  # skip CUDA-view duplicate (carries no children)
@@ -260,9 +266,6 @@ class TorchProfiler(BenchProfiler):
         self._iter_count = 0
         self._all_op_rows: list[dict] = []
         self._current_metrics: dict = {}
-        # temporary buffers: on_trace_ready stores data here; end_iteration reads it.
-        # needed because on_trace_ready is a callback (can't return values) and torch
-        # clears events immediately after the callback returns.
         self._pending_summary: dict = {}
         self._pending_ops: dict = {}
         self._iter_t0: float = 0.0
@@ -317,11 +320,23 @@ class TorchProfiler(BenchProfiler):
     def __exit__(self, *args):
         self._stop_profiler()
 
+    # Sections run by the autograd engine on a worker thread ("pt_autograd_*").
+    # torch.profiler nests ops by same-thread cpu_children, so we pin these to the
+    # calling thread (set_multithreading_enabled(False)) or the section reads ~0.
+    _SINGLE_THREAD_SECTIONS = ("backward",)
+
     @contextmanager
     def track_step(self, name: str):
-        """Annotate a named sub-step; torch.profiler captures the true device timeline."""
-        with torch.profiler.record_function(name):
-            yield
+        """Annotate a sub-step. For ``backward``, also pin autograd to the calling
+        thread so its ops nest under this annotation (free for one GPU per process).
+        """
+        if name in self._SINGLE_THREAD_SECTIONS:
+            with torch.autograd.set_multithreading_enabled(False), \
+                    torch.profiler.record_function(name):
+                yield
+        else:
+            with torch.profiler.record_function(name):
+                yield
 
     def end_iteration(self):
         # sync GPU so wall-clock time includes GPU execution, then measure peak memory
