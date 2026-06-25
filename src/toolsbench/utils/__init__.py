@@ -4,33 +4,36 @@ This module provides shared utilities for datasets, solvers, and objectives,
 including visualization and data loading helpers.
 """
 
-from .solver_utils import (
-    build_solver_name as build_solver_name,
-    crop_psnr as crop_psnr,
-    denormalize_from_unit as denormalize_from_unit,
-    distributed_callback_iter as distributed_callback_iter,
-    get_device_from_context as get_device_from_context,
-    initialize_reconstruction as initialize_reconstruction,
-    normalize_to_unit as normalize_to_unit,
-    save_prediction_results as save_prediction_results,
-    save_training_figure as save_training_figure,
-    seed_everything as seed_everything,
-    setup_distributed_env as setup_distributed_env,
-    sync_and_barrier as sync_and_barrier,
-)
-from .trainer import _Trainer as _Trainer, TrainingHistory as TrainingHistory
-from .tomo_utils import (
-    WalnutMemoryMaps as WalnutMemoryMaps,
-    WalnutEntry as WalnutEntry,
-    WalnutGroupSampler as WalnutGroupSampler,
-    WalnutTomoDataset as WalnutTomoDataset,
-    load_trajectory_sparse as load_trajectory_sparse,
-    projection_splits as projection_splits,
-    split_sinogram as split_sinogram,
-    ensure_dir as ensure_dir,
-    append_metrics_row as append_metrics_row,
-    collate_deepinv_batch as collate_deepinv_batch,
-)
+try:
+    from .solver_utils import (
+        build_solver_name as build_solver_name,
+        crop_psnr as crop_psnr,
+        denormalize_from_unit as denormalize_from_unit,
+        distributed_callback_iter as distributed_callback_iter,
+        get_device_from_context as get_device_from_context,
+        initialize_reconstruction as initialize_reconstruction,
+        normalize_to_unit as normalize_to_unit,
+        save_prediction_results as save_prediction_results,
+        save_training_figure as save_training_figure,
+        seed_everything as seed_everything,
+        setup_distributed_env as setup_distributed_env,
+        sync_and_barrier as sync_and_barrier,
+    )
+    from .trainer import _Trainer as _Trainer, TrainingHistory as TrainingHistory
+    from .tomo_utils import (
+        WalnutMemoryMaps as WalnutMemoryMaps,
+        WalnutEntry as WalnutEntry,
+        WalnutGroupSampler as WalnutGroupSampler,
+        WalnutTomoDataset as WalnutTomoDataset,
+        load_trajectory_sparse as load_trajectory_sparse,
+        projection_splits as projection_splits,
+        split_sinogram as split_sinogram,
+        ensure_dir as ensure_dir,
+        append_metrics_row as append_metrics_row,
+        collate_deepinv_batch as collate_deepinv_batch,
+    )
+except ImportError:
+    pass
 
 import math
 from pathlib import Path

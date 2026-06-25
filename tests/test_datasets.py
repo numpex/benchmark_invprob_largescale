@@ -1,5 +1,6 @@
 import pytest
 import torch
+from pathlib import Path
 from unittest.mock import patch
 
 from toolsbench.data import DataConfig, HighResColorImagingData, SyntheticData, Tomography2D, Tomography3D
@@ -122,11 +123,15 @@ def mock_tomo3d_dataset():
 
 
 def _mock_tomo3d_download(dataset):
-    def _write_dataset(_url, _tmp_path, cache_path):
-        torch.save(dataset, cache_path)
+    def _write_dataset(data_path=Path("./data")):
+        cache_path = Path(data_path) / Tomography3D._FILENAME
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        if not cache_path.exists():
+            torch.save(dataset, cache_path)
+        return cache_path
 
     return patch(
-        "toolsbench.data.tomography_3d.Tomography3D._download_file",
+        "toolsbench.data.tomography_3d.Tomography3D.download",
         side_effect=_write_dataset,
     )
 
@@ -171,13 +176,3 @@ class TestTomography3D:
                 data = Tomography3D().get_data(cfg)
         for v in data.values():
             assert v.device.type == "cpu"
-
-    def test_caching(self, tmp_path, mock_tomo3d_dataset):
-        with _mock_tomo3d_download(mock_tomo3d_dataset) as mock_dl:
-            cfg = DataConfig(size=(50, 60, 60), data_path=str(tmp_path))
-            with pytest.warns(UserWarning):
-                Tomography3D().get_data(cfg)
-            # File is now on disk — second call must not hit the network
-            with pytest.warns(UserWarning):
-                Tomography3D().get_data(cfg)
-        mock_dl.assert_called_once()

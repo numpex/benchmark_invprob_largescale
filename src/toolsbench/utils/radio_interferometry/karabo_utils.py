@@ -13,7 +13,7 @@ from karabo.simulation.telescope import Telescope
 from karabo.simulator_backend import SimulatorBackend
 from karabo.calibration.noise_rms import ska_low_noise_rms
 
-from toolsbench.utils.radio_utils import (
+from toolsbench.utils.radio_interferometry.radio_utils import (
     MEERKAT_LOCATION,
     draw_random_pointing,
     get_cellsize_from_fits_wcs,
@@ -124,8 +124,7 @@ def image_to_skymodel(image_fits, ra_center, dec_center):
 
     data_fits.close()
 
-    sky_model, _, _ = SkyModel.get_sky_model_from_optical_fits_image(
-        str(image_fits),
+    sky_model_kwargs = dict(
         default_map_units="Jy/pixel",
         move_object=True,  # Default move to MeerKAT center
         new_ra=ra_center,
@@ -133,6 +132,19 @@ def image_to_skymodel(image_fits, ra_center, dec_center):
         rescale_flux=False,
         # flux_percentile=0.0,
     )
+    try:
+        sky_model, _, _ = SkyModel.get_sky_model_from_optical_fits_image(
+            str(image_fits),
+            **sky_model_kwargs,
+        )
+    except TypeError as exc:
+        if "rescale_flux" not in str(exc):
+            raise
+        sky_model_kwargs.pop("rescale_flux")
+        sky_model, _, _ = SkyModel.get_sky_model_from_optical_fits_image(
+            str(image_fits),
+            **sky_model_kwargs,
+        )
 
     return sky_model, float(max_flux), float(rms), float(dynamic_range)
 
@@ -166,7 +178,12 @@ def generate_meerkat_visibilities(
         start_frequency_hz,
         end_frequency_hz,
         number_of_channels,
+        pos_ra,
+        pos_dec,
         random_position,
+        add_noise,
+        pol_mode,
+        use_gpus,
     )
     metadata_path = vis_path.with_suffix(".meta.json")
 
@@ -287,11 +304,18 @@ def generate_meerkat_visibilities(
         "imaging_npixel": int(imaging_npixel),
         "phase_center_ra_deg": float(phase_center_ra),
         "phase_center_dec_deg": float(phase_center_dec),
+        "requested_pos_ra_deg": float(pos_ra),
+        "requested_pos_dec_deg": float(pos_dec),
+        "random_position": bool(random_position),
         "start_frequency_hz": int(start_frequency_hz),
+        "end_frequency_hz": int(end_frequency_hz),
         "frequency_increment_hz": int(frequency_increment_hz),
         "number_of_channels": int(number_of_channels),
-        "number_of_time_steps": number_of_time_steps,
-        "add_noise": add_noise,
+        "number_of_time_steps": int(number_of_time_steps),
+        "add_noise": bool(add_noise),
+        "pol_mode": str(pol_mode),
+        "use_gpus": bool(use_gpus),
+        "fits_name": os.path.basename(fits_file),
         "dynamic_range": dynamic_range,
         "max_flux": max_flux,
         "image_rms": image_rms,
