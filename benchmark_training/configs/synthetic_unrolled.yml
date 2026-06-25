@@ -16,9 +16,11 @@ solver:
       n_iter: 3
       init_stepsize: 0.8
       denoiser_sigma: 0.05
+      learning_rate: 1e-4
+      model_learning_rate: 1e-4
       train_algo_params: true
       grad_clip: 1.0
-      profiler_mode: [custom]
+      profiler_mode: [torch, custom]
       profiler_per_step: [True]
       slurm_gres, slurm_ntasks_per_node, slurm_nodes, distribute_model, patch_size, overlap, max_batch_size, checkpoint_batches: [
         ["gpu:1", 1, 1,  false, 0, 0, 0, 'never'],
