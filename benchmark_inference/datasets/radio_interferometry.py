@@ -141,7 +141,7 @@ class Dataset(BaseDataset):
                 data_path=Path(config.get_data_path(key="radio_interferometry")),
                 params=self._invprob_params(),
             )
-            return RadioInterferometryInvProb().get_invprob(invprob_conf)
+            return RadioInterferometryInvProb().get_invprob(invprob_conf).asdict()
 
     def _invprob_params(self) -> dict:
         return {

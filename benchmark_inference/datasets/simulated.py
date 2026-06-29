@@ -66,4 +66,4 @@ class Dataset(BaseDataset):
                     filename="simulated.png",
                 )
 
-        return invprob
+        return invprob.asdict()

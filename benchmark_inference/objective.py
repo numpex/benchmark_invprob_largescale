@@ -24,6 +24,10 @@ class Objective(BaseObjective):
 
     name = "reconstruction_objective"
 
+    parameters = {
+        "save_output_figures": [False],
+    }
+
     # The three methods below define the links between the Dataset,
     # the Objective and the Solver.
     def set_data(
@@ -159,19 +163,25 @@ class Objective(BaseObjective):
                 10.0 * math.log10(asinh_range**2 / mse_asinh) if mse_asinh > 0 else float("inf")
             )
 
-            # Save comparison figure
-            output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
             self.evaluation_count += 1
-            save_comparison_figure(
-                self.ground_truth,
-                reconstruction,
-                metrics={"psnr": psnr, "ssim": ssim, "mse": mse, "asinh_psnr": asinh_psnr},
-                output_dir=output_dir,
-                filename=f"eval_{self.evaluation_count:04d}.png",
-                evaluation_count=self.evaluation_count,
-                vmin=self.min_pixel,
-                vmax=self.max_pixel,
-            )
+            if self.save_output_figures:
+                # Save comparison figure
+                output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
+                save_comparison_figure(
+                    self.ground_truth,
+                    reconstruction,
+                    metrics={
+                        "psnr": psnr,
+                        "ssim": ssim,
+                        "mse": mse,
+                        "asinh_psnr": asinh_psnr,
+                    },
+                    output_dir=output_dir,
+                    filename=f"eval_{self.evaluation_count:04d}.png",
+                    evaluation_count=self.evaluation_count,
+                    vmin=self.min_pixel,
+                    vmax=self.max_pixel,
+                )
 
             # reconstruction_np = (
             #     reconstruction.detach().cpu().to(torch.float32).numpy().squeeze()

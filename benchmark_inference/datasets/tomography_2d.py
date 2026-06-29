@@ -73,7 +73,7 @@ class Dataset(BaseDataset):
                     filename="tomography_2d.png",
                 )
 
-        return invprob
+        return invprob.asdict()
 
     def _get_size(self):
         if isinstance(self.image_size, int):

@@ -68,4 +68,4 @@ class Dataset(BaseDataset):
                     filename="multiframe_superres.png",
                 )
 
-        return invprob
+        return invprob.asdict()
