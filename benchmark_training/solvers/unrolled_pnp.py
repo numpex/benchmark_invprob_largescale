@@ -1,3 +1,6 @@
+import torch
+import torch.nn.functional as F
+
 from benchopt import BaseSolver
 from benchopt.stopping_criterion import NoCriterion
 from deepinv.distributed import DistributedContext
@@ -37,6 +40,8 @@ class Solver(BaseSolver):
         "overlap": [32],
         "max_batch_size": [1],
         "checkpoint_batches": ["auto"],
+        # --- Image size (solver-side, None means use dataset size) ---
+        "image_size": [None],
         # --- SLURM / torchrun ---
         "slurm_nodes": [1],
         "slurm_ntasks_per_node": [1],
@@ -63,11 +68,26 @@ class Solver(BaseSolver):
         max_pixel=1.0,
         **kwargs,
     ):
+        dataset_image_size = ground_truth.shape[-1]
+        if self.image_size is not None and self.image_size != dataset_image_size:
+            ground_truth = F.interpolate(
+                ground_truth,
+                size=(self.image_size, self.image_size),
+                mode="bilinear",
+                align_corners=False,
+            )
+            for frame_physics in physics.physics_list:
+                subs = frame_physics.physics_list if hasattr(frame_physics, "physics_list") else [frame_physics]
+                for sub in subs:
+                    if hasattr(sub, "imsize"):
+                        sub.imsize = None
+            with torch.no_grad():
+                measurements = physics(ground_truth)
         self.problem = InvProb(
             ground_truth=ground_truth,
             measurements=measurements,
             physics=physics,
-            ground_truth_shape=ground_truth_shape,
+            ground_truth_shape=ground_truth.shape,
             num_operators=num_operators,
             min_pixel=min_pixel,
             max_pixel=max_pixel,
@@ -127,7 +147,7 @@ class Solver(BaseSolver):
     def get_result(self):
         if self._algo is None:
             return {"reconstruction": None}
-        result = dict(name=self.name)
+        result = dict(name=self.name, ground_truth=self.problem.ground_truth)
         result.update(self._algo.get_result())
         return result
 

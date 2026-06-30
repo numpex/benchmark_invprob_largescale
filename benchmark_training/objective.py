@@ -79,7 +79,7 @@ class Objective(BaseObjective):
             **self._extra_kwargs,
         )
 
-    def evaluate_result(self, reconstruction, name, **kwargs):
+    def evaluate_result(self, reconstruction, name, ground_truth=None, **kwargs):
         """Score the reconstruction returned by the solver for this step.
 
         Parameters
@@ -97,12 +97,13 @@ class Objective(BaseObjective):
             ``value`` (negative PSNR for minimization), ``psnr`` plus any forwarded metrics.
         """
         with torch.no_grad():
-            reconstruction = reconstruction.to(self.ground_truth.device)
+            gt = ground_truth if ground_truth is not None else self.ground_truth
+            reconstruction = reconstruction.to(gt.device)
             reconstruction = torch.clamp(
                 reconstruction, min=self.min_pixel, max=self.max_pixel
             )
             ground_truth = torch.clamp(
-                self.ground_truth, min=self.min_pixel, max=self.max_pixel
+                gt, min=self.min_pixel, max=self.max_pixel
             )
 
             psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
@@ -115,7 +116,7 @@ class Objective(BaseObjective):
             output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
             self.evaluation_count += 1
             save_comparison_figure(
-                self.ground_truth,
+                gt,
                 reconstruction,
                 metrics={"psnr": psnr},
                 output_dir=output_dir,

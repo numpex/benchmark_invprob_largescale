@@ -12,7 +12,7 @@ shared :class:`toolsbench.profiler.BenchProfiler` API.
 """
 
 import torch
-from deepinv.distributed import distribute
+from deepinv.distributed import DistributedContext, distribute
 from deepinv.optim import PGD
 from deepinv.optim.data_fidelity import L2
 from deepinv.optim.prior import PnP
@@ -134,6 +134,8 @@ class UnrolledPnPSolver:
         self.reconstruction = None
 
     def run(self, cb):
+        if self.distribute_model and self.ctx is None:
+            self.ctx = DistributedContext()
         x = self.problem.ground_truth.to(self.device)
         y = self._measurement_to_device(self.problem.measurements)
         physics = self._setup_physics()
