@@ -208,7 +208,7 @@ class UnrolledPnPSolver:
         # Collect raw denoiser params before any wrapping (distribute / compile).
         denoiser_params = list(denoiser.parameters())
 
-        data_fidelity = distribute(L2(), self.ctx) if self.ctx is not None else L2()
+        data_fidelity = L2()
         prior = PnP(denoiser=denoiser)
 
         if self.train_algo_params:

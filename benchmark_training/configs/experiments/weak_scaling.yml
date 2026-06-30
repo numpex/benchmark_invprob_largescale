@@ -15,8 +15,6 @@ solver:
       n_iter: 5
       init_stepsize: 0.8
       denoiser_sigma: 0.05
-      train_algo_params: true
-      grad_clip: 1.0
       profiler_mode: [custom]
       profiler_warmup: 2
       profiler_active: 3 # record all remaining iterations after warmup 

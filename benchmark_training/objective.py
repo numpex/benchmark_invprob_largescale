@@ -11,8 +11,6 @@ import torch
 from benchopt import BaseObjective
 from deepinv.loss.metric import PSNR
 
-from toolsbench.utils import save_comparison_figure
-
 
 class Objective(BaseObjective):
     """Training objective scoring reconstruction quality per training step."""
@@ -60,7 +58,6 @@ class Objective(BaseObjective):
         self.psnr_metric = PSNR(max_pixel=max_pixel)
         self.min_pixel = min_pixel
         self.max_pixel = max_pixel
-        self.evaluation_count = 0
 
     def get_objective(self):
         """Returns a dict passed to Solver.set_objective.
@@ -113,18 +110,6 @@ class Objective(BaseObjective):
                 else psnr_tensor.item()
             )
 
-            output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
-            self.evaluation_count += 1
-            save_comparison_figure(
-                gt,
-                reconstruction,
-                metrics={"psnr": psnr},
-                output_dir=output_dir,
-                filename=f"eval_{self.evaluation_count:04d}.png",
-                evaluation_count=self.evaluation_count,
-                vmin=self.min_pixel,
-                vmax=self.max_pixel,
-            )
 
         result = dict(value=-psnr, psnr=psnr)
         for key, value in kwargs.items():

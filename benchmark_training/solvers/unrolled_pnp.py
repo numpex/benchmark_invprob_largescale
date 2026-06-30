@@ -31,8 +31,6 @@ class Solver(BaseSolver):
         "init_stepsize": [0.8],
         "denoiser_sigma": [0.05],
         # --- Optimizer ---
-        "train_algo_params": [True],
-        "lambda_relaxation": [False],
         "grad_clip": [1.0],
         # --- Distributed processing ---
         "distribute_model": [False],
@@ -55,6 +53,7 @@ class Solver(BaseSolver):
         "profiler_trace_dir": [None],
         "profiler_per_step": [True],
         "profiler_repeat": [1],
+        "profiler_save_file": [False],
     }
 
     def set_objective(
@@ -120,6 +119,7 @@ class Solver(BaseSolver):
             trace_dir=self.profiler_trace_dir,
             per_step=self.profiler_per_step,
             repeat=self.profiler_repeat,
+            save_file=self.profiler_save_file,
         )
         with profiler:
             self._algo = UnrolledPnPSolver(
@@ -132,8 +132,6 @@ class Solver(BaseSolver):
                 n_iter=self.n_iter,
                 init_stepsize=self.init_stepsize,
                 denoiser_sigma=self.denoiser_sigma,
-                train_algo_params=self.train_algo_params,
-                lambda_relaxation=self.lambda_relaxation,
                 grad_clip=self.grad_clip,
                 distribute_model=self.distribute_model,
                 patch_size=self.patch_size,

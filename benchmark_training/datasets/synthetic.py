@@ -67,4 +67,4 @@ class Dataset(BaseDataset):
                     filename="synthetic_train.png",
                 )
 
-        return invprob
+        return invprob.asdict()
