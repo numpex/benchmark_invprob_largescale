@@ -21,12 +21,13 @@ class CustomProfiler(BenchProfiler):
         Number of iterations to record after warmup (0 = all remaining).
     """
 
-    def __init__(self, device, name: str, warmup: int = 0, active: int = 0):
+    def __init__(self, device, name: str, warmup: int = 0, active: int = 0, save_file: bool = False):
         self._device = torch.device(device) if isinstance(device, str) else device
         self._name = name
         self._has_cuda = torch.cuda.is_available() and self._device.type == "cuda"
         self._warmup = warmup
         self._active = active
+        self._save_file = save_file
         self._iter_count: int = 0
         self._step_metrics: dict[str, dict] = {}
         self._all_results: list[dict] = []
@@ -91,7 +92,7 @@ class CustomProfiler(BenchProfiler):
         return self._current_metrics
 
     def finalize(self, ctx) -> None:
-        if not self._all_results:
+        if not self._all_results or not self._save_file:
             return
         out_dir = Path("outputs")
         out_dir.mkdir(parents=True, exist_ok=True)

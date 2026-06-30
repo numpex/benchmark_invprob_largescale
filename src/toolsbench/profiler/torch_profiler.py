@@ -243,7 +243,8 @@ class TorchProfiler(BenchProfiler):
     """
 
     def __init__(self, device, name: str, warmup: int = 0, active: int = 0,
-                 trace_dir: str | None = None, per_step: bool = True, repeat: int = 1):
+                 trace_dir: str | None = None, per_step: bool = True, repeat: int = 1,
+                 save_file: bool = False):
         self._device = torch.device(device) if isinstance(device, str) else device
         self._name = name
         self._warmup = warmup
@@ -251,6 +252,7 @@ class TorchProfiler(BenchProfiler):
         self._trace_dir = None if (trace_dir is None or trace_dir == "None") else trace_dir
         self._per_step = per_step
         self._repeat = repeat
+        self._save_file = save_file
         if self._trace_dir is not None and self._per_step:
             # per_step=True resets the profiler every iteration, so only the final
             # cycle survives — a full Chrome trace can't be captured in that mode.
@@ -399,7 +401,7 @@ class TorchProfiler(BenchProfiler):
             self._prof.export_chrome_trace(trace_path)
             print(f"[profiler] Chrome trace saved to {trace_path}")
 
-        if not self._all_op_rows:
+        if not self._all_op_rows or not self._save_file:
             return
 
         out_dir = Path("outputs")

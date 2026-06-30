@@ -14,6 +14,7 @@ def create_profiler(
     trace_dir: str | None = None,
     per_step: bool = True,
     repeat: int = 1,
+    save_file: bool = False,
 ) -> BenchProfiler:
     """Factory: return the right profiler for *mode*.
 
@@ -46,10 +47,10 @@ def create_profiler(
     if mode is None:
         return NullProfiler()
     if mode == "custom":
-        return CustomProfiler(device=device, name=name, warmup=warmup, active=active)
+        return CustomProfiler(device=device, name=name, warmup=warmup, active=active, save_file=save_file)
     if mode == "torch":
         return TorchProfiler(
             device=device, name=name, warmup=warmup, active=active,
-            trace_dir=trace_dir, per_step=per_step, repeat=repeat,
+            trace_dir=trace_dir, per_step=per_step, repeat=repeat, save_file=save_file,
         )
     raise ValueError(f"Unknown profiler mode {mode!r}. Choose None, 'custom', or 'torch'.")
