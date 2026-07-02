@@ -111,6 +111,7 @@ class UnrolledPnPSolver:
         overlap=32,
         max_batch_size=1,
         checkpoint_batches="auto",
+        deterministic=True,
     ):
         self.problem = problem
         self.device = device
@@ -131,11 +132,12 @@ class UnrolledPnPSolver:
         self.overlap = overlap
         self.max_batch_size = max_batch_size
         self.checkpoint_batches = checkpoint_batches
+        self.deterministic = deterministic
         self.reconstruction = None
 
     def run(self, cb):
         if self.distribute_model and self.ctx is None:
-            self.ctx = DistributedContext()
+            self.ctx = DistributedContext(deterministic=self.deterministic)
         x = self.problem.ground_truth.to(self.device)
         y = self._measurement_to_device(self.problem.measurements)
         physics = self._setup_physics()

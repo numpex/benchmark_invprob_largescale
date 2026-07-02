@@ -45,6 +45,8 @@ class Solver(BaseSolver):
         "slurm_ntasks_per_node": [1],
         "slurm_gres": ["gpu:1"],
         "torchrun_nproc_per_node": [1],
+        # --- Distributed context ---
+        "deterministic": [True],
         # --- Logging / profiling ---
         "name_prefix": ["unrolled_pnp"],
         "profiler_mode": ["custom"],
@@ -105,7 +107,7 @@ class Solver(BaseSolver):
 
     def run(self, cb):
         if self.distributed_mode:
-            with DistributedContext(seed=42, cleanup=True, deterministic=True) as ctx:
+            with DistributedContext(seed=42, cleanup=True, deterministic=self.deterministic) as ctx:
                 self.ctx = ctx
                 self._run_with_context(cb, ctx)
         else:
@@ -138,6 +140,7 @@ class Solver(BaseSolver):
                 overlap=self.overlap,
                 max_batch_size=self.max_batch_size,
                 checkpoint_batches=self.checkpoint_batches,
+                deterministic=self.deterministic,
             )
             self._algo.run(cb)
         profiler.finalize(ctx)
