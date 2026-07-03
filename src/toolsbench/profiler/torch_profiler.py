@@ -113,14 +113,20 @@ def _per_step_comm(events, section_names) -> dict:
 
 def _section_summary(avgs, events=None) -> dict:
     """Return per-iteration per-section benchopt metrics: ``{sec}_cuda_sec``,
-    ``{sec}_cpu_sec``, ``{sec}_comm_sec``, ``comm_cuda_sec``.
+    ``{sec}_cpu_sec``, ``{sec}_comm_sec``, ``comm_cuda_sec``, ``comm_sync_sec``.
+
+    ``comm_cuda_sec`` is the sum of the per-section comm times, so it always
+    equals the sum of the ``{sec}_comm_sec`` columns. NCCL kernels running
+    outside any section (end-of-iteration barrier, callback-path broadcast)
+    mostly spin-wait on inter-rank skew; their time is reported separately as
+    ``comm_sync_sec`` instead of being folded into the communication total.
 
     Called once per profiler cycle (one iteration), so values are already per-iteration.
     """
     grouped = _group_by_key(avgs)
     out: dict = {}
     section_names = []
-    comm_cuda_sec = 0.0
+    total_nccl_sec = 0.0
     for key, g in grouped.items():
         # Skip torch's own annotations (schedule marker + optimizer, which
         # torch.optim auto-wraps in a record_function) so only our sections show.
@@ -132,14 +138,18 @@ def _section_summary(avgs, events=None) -> dict:
             out[f"{key}_cpu_sec"]  = round(g["cpu_time"] / 1e6, 6)
             section_names.append(key)
         elif _is_comm_op(key) and g["is_user"]:
-            # accumulate iteration-level communication total; is_user=True filters to
-            # nccl:* annotations and avoids double-counting c10d::* CPU-view duplicates
-            comm_cuda_sec += g["dev_time"] / 1e6
+            # all NCCL kernels in the cycle, in or out of sections; is_user=True
+            # filters to nccl:* annotations and avoids double-counting c10d::*
+            # CPU-view duplicates
+            total_nccl_sec += g["dev_time"] / 1e6
+    comm_cuda_sec = 0.0
     if events is not None and section_names:
         # per-section comm time: walk the raw event tree to attribute comm to its section
         for name, comm_sec in _per_step_comm(events, section_names).items():
             out[f"{name}_comm_sec"] = round(comm_sec, 6)
+            comm_cuda_sec += comm_sec
     out["comm_cuda_sec"] = round(comm_cuda_sec, 6)
+    out["comm_sync_sec"] = round(max(total_nccl_sec - comm_cuda_sec, 0.0), 6)
     return out
 
 
@@ -231,7 +241,7 @@ class TorchProfiler(BenchProfiler):
 
     Benchopt metrics (``get_current_metrics()``)
         ``{section}_cuda_sec``, ``{section}_cpu_sec``, ``{section}_comm_sec``,
-        ``comm_cuda_sec``, ``total_time_sec``, ``max_gpu_mb``.
+        ``comm_cuda_sec``, ``comm_sync_sec``, ``total_time_sec``, ``max_gpu_mb``.
 
     warmup/active bound the profiling window; outside it the run executes at full speed.
     trace_dir raises ValueError with per_step=True (profiler is reset each iteration,
@@ -340,7 +350,7 @@ class TorchProfiler(BenchProfiler):
             with torch.profiler.record_function(name):
                 yield
 
-    def end_iteration(self):
+    def end_iteration(self, ctx=None):
         # sync GPU so wall-clock time includes GPU execution, then measure peak memory
         if self._has_cuda:
             torch.cuda.synchronize(self._device)
@@ -375,6 +385,12 @@ class TorchProfiler(BenchProfiler):
             elif self._active > 0 and self._started and not self._stopped \
                     and self._iter_count >= self._warmup + self._active:
                 self._stop_profiler()
+
+        # Profiler bookkeeping above takes a variable time per rank; without a
+        # barrier the skew is absorbed by the next iteration's first collective
+        # and shows up as fake spikes in that section's time.
+        if ctx is not None and getattr(ctx, "use_dist", False):
+            ctx.barrier()
 
         self._iter_t0 = time.perf_counter()
 

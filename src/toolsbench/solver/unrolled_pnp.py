@@ -177,7 +177,7 @@ class UnrolledPnPSolver:
             cb, self.distributed_mode, self.device, self.ctx
         ):
             self.reconstruction = trainer.run_step(x, y, physics, epoch)
-            self.profiler.end_iteration()
+            self.profiler.end_iteration(self.ctx)
             epoch += 1
 
         sync_and_barrier(self.device, self.ctx)

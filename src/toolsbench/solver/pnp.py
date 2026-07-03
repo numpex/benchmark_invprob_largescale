@@ -200,7 +200,7 @@ class PnPSolver:
                             self.reconstruction, sig_min, sig_max
                         )
 
-                self.profiler.end_iteration()
+                self.profiler.end_iteration(self.ctx)
 
     def get_result(self):
         result = dict(reconstruction=self.reconstruction)

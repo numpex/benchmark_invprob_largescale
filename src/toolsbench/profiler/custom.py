@@ -74,7 +74,7 @@ class CustomProfiler(BenchProfiler):
                 ),
             }
 
-    def end_iteration(self):
+    def end_iteration(self, ctx=None):
         if self._is_recording():
             total_time = time.perf_counter() - self._iter_t0
             max_gpu = max((m["max_gpu_mb"] for m in self._step_metrics.values()), default=0.0)

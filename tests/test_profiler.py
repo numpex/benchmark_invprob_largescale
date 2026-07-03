@@ -117,7 +117,7 @@ class TestCustomProfilerMetrics:
 
     def test_finalize_writes_csv(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        p = CustomProfiler(device="cpu", name="myrun")
+        p = CustomProfiler(device="cpu", name="myrun", save_file=True)
         with p:
             with p.track_step("grad"):
                 pass
@@ -200,7 +200,7 @@ class TestTorchProfiler:
     @pytest.mark.parametrize("per_step,expected", [(True, {0, 1, 2}), (False, {"agg"})])
     def test_csv_iter_labels(self, tmp_path, monkeypatch, device, per_step, expected):
         monkeypatch.chdir(tmp_path)
-        p = TorchProfiler(device=device, name="run", per_step=per_step)
+        p = TorchProfiler(device=device, name="run", per_step=per_step, save_file=True)
         _run_torch(p, n_iters=3, device=device)
         p.finalize(None)
         import pandas as pd
@@ -211,7 +211,8 @@ class TestTorchProfiler:
     def test_window_records_only_active_iters(self, tmp_path, monkeypatch, device):
         # warmup=1 skips iter 0; active=2 stops after iters 1,2 => iters 3,4 unrecorded.
         monkeypatch.chdir(tmp_path)
-        p = TorchProfiler(device=device, name="run", warmup=1, active=2, per_step=True)
+        p = TorchProfiler(device=device, name="run", warmup=1, active=2, per_step=True,
+                          save_file=True)
         _run_torch(p, n_iters=5, device=device)
         p.finalize(None)
         import pandas as pd
