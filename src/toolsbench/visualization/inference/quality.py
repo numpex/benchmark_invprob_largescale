@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from .common import (
+from toolsbench.visualization.common import (
     COLORWAY,
     DEFAULT_OUTPUT_DIR,
     TIMING_WARMUP_ITERATIONS,

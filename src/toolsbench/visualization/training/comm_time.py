@@ -10,18 +10,15 @@ import pandas as pd
 
 from toolsbench.visualization.common import (
     COLORWAY,
-    format_image_size,
-    set_gpu_axis,
-    style_axes,
-)
-
-from .common import (
     DEFAULT_TRAINING_OUTPUT_DIR,
     clear_png_outputs,
     configure_matplotlib,
+    format_image_size,
     load_training_summary,
     make_output_path,
     problem_size_title,
+    set_gpu_axis,
+    style_axes,
     write_figure,
 )
 

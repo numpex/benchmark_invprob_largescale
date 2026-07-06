@@ -6,15 +6,15 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from toolsbench.visualization.common import COLORWAY, style_axes
-
-from .common import (
+from toolsbench.visualization.common import (
+    COLORWAY,
     DEFAULT_TRAINING_OUTPUT_DIR,
     clear_png_outputs,
     configure_matplotlib,
     load_training_summary,
     make_output_path,
     problem_size_title,
+    style_axes,
     write_figure,
 )
 

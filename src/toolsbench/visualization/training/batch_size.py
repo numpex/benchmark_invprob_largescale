@@ -7,15 +7,16 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from toolsbench.visualization.common import COLORWAY, set_gpu_axis, style_axes
-
-from .common import (
+from toolsbench.visualization.common import (
+    COLORWAY,
     DEFAULT_TRAINING_OUTPUT_DIR,
     clear_png_outputs,
     configure_matplotlib,
     load_training_summary,
     make_output_path,
     problem_size_title,
+    set_gpu_axis,
+    style_axes,
     write_figure,
 )
 

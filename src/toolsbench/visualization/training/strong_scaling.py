@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .common import (
+from toolsbench.visualization.common import (
     DEFAULT_TRAINING_OUTPUT_DIR,
     clear_png_outputs,
     configure_matplotlib,
