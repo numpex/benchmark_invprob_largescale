@@ -8,7 +8,7 @@ objective:
 # Dataset filters (with parameters) - smaller size for faster distributed test
 dataset:
   - multiframe_superres:
-      image_size: [2048, 8192]
+      image_size: [2048, 4096]
       num_operators: 8
       noise_level: 0.1
 
@@ -23,14 +23,14 @@ solver:
       profiler_warmup: 0
       profiler_active: 0 # record all remaining iterations after warmup 
       slurm_gres, slurm_ntasks_per_node, slurm_nodes, distribute_physics, distribute_denoiser, patch_size, overlap, max_batch_size: [
-        ["gpu:1", 1, 1, false, false, 0, 0, 0],
-        ["gpu:2", 2, 1, true, true, 448, 0, 0],
-        ["gpu:2", 2, 1, true, true, 448, 4, 0],
-        ["gpu:2", 2, 1, true, true, 448, 8, 0],
-        ["gpu:2", 2, 1, true, true, 448, 16, 0],
-        ["gpu:2", 2, 1, true, true, 448, 32, 0],
-        ["gpu:2", 2, 1, true, true, 448, 64, 0],
-        ["gpu:2", 2, 1, true, true, 448, 128, 0],
+        ["gpu:1", 1, 1, false, false, 0, 0, 32],
+        ["gpu:2", 2, 1, true, true, 448, 0, 32],
+        ["gpu:2", 2, 1, true, true, 448, 4, 32],
+        ["gpu:2", 2, 1, true, true, 448, 8, 32],
+        ["gpu:2", 2, 1, true, true, 448, 16, 32],
+        ["gpu:2", 2, 1, true, true, 448, 32, 32],
+        ["gpu:2", 2, 1, true, true, 448, 64, 32],
+        ["gpu:2", 2, 1, true, true, 448, 128, 32],
       ]
 
 
