@@ -4,7 +4,7 @@ objective:
 
 dataset:
   - synthetic:
-      image_size: [4096,8192]
+      image_size: [4096]
       num_operators: 4
       channels: 3
       noise_level: 0.1
@@ -19,14 +19,12 @@ solver:
       profiler_mode: [custom]
       profiler_warmup: 2
       profiler_active: 3 # record all remaining iterations after warmup 
-      max_batch_size : [1,4,16]
-      distribute_model, patch_size, overlap : [[true, 256, 32]]
+      max_batch_size : [1,2,4,8,16]
+      distribute_model, patch_size, overlap : [[true, 256, 16]]
       slurm_gres, slurm_ntasks_per_node, slurm_nodes, checkpoint_batches : [
         ["gpu:1", 1, 1, 'always'],
         ["gpu:4", 4, 1, 'always'],
         ["gpu:4", 4, 4, 'always'],
-        ["gpu:4", 4, 4, 'never'],
-
       ]
 
 max-runs: 5

@@ -43,7 +43,7 @@ class NullProfiler(BenchProfiler):
     def track_step(self, name: str):
         yield
 
-    def end_iteration(self):
+    def end_iteration(self, ctx=None):
         pass
 
     def get_current_metrics(self) -> dict:
