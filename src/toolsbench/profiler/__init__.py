@@ -3,6 +3,7 @@ from __future__ import annotations
 from toolsbench.profiler.base import BenchProfiler as BenchProfiler, NullProfiler as NullProfiler
 from toolsbench.profiler.custom import CustomProfiler as CustomProfiler
 from toolsbench.profiler.torch_profiler import TorchProfiler as TorchProfiler
+from toolsbench.profiler.nvidia_profiler import NvidiaProfiler as NvidiaProfiler
 
 
 def create_profiler(
@@ -20,10 +21,12 @@ def create_profiler(
 
     Parameters
     ----------
-    mode : None | "custom" | "torch"
+    mode : None | "custom" | "torch" | "nvidia"
         ``None`` → NullProfiler (zero overhead).
         ``"custom"`` → CustomProfiler (wall-clock + GPU memory → CSV).
         ``"torch"`` → TorchProfiler (per-iteration CUDA/CPU/comm ms via torch.profiler).
+        ``"nvidia"`` → NvidiaProfiler (NVTX ranges + cudaProfilerStart/Stop for
+        external capture by ``nsys profile --capture-range=cudaProfilerApi``).
     device : torch.device or str
         Target device.
     name : str
@@ -53,4 +56,6 @@ def create_profiler(
             device=device, name=name, warmup=warmup, active=active,
             trace_dir=trace_dir, per_step=per_step, repeat=repeat, save_file=save_file,
         )
-    raise ValueError(f"Unknown profiler mode {mode!r}. Choose None, 'custom', or 'torch'.")
+    if mode == "nvidia":
+        return NvidiaProfiler(device=device, name=name, warmup=warmup, active=active, save_file=save_file)
+    raise ValueError(f"Unknown profiler mode {mode!r}. Choose None, 'custom', 'torch', or 'nvidia'.")
