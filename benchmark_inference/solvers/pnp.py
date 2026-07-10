@@ -1,3 +1,5 @@
+import re
+
 from benchopt import BaseSolver
 from deepinv.distributed import DistributedContext
 
@@ -30,6 +32,7 @@ class Solver(BaseSolver):
         "distribute_denoiser": [False],
         "init_method": ["pseudo_inverse"],
         "norm_strategy": ["clip"],
+        "compile": [None],
         "slurm_nodes": [1],
         "slurm_ntasks_per_node": [1],
         "slurm_gres": ["gpu:1"],
@@ -67,13 +70,14 @@ class Solver(BaseSolver):
         self._algo = None
         self.world_size = setup_distributed_env()
         self.distributed_mode = self.world_size > 1
-        self.name = build_solver_name(
+        self.run_name = build_solver_name(
             self.name_prefix,
             self.slurm_nodes,
             self.slurm_ntasks_per_node,
             self.torchrun_nproc_per_node,
             self.distributed_mode,
         )
+        self.name = re.sub(r"_rank\d+$", "", re.sub(r"_\d{8}_\d{6}_", "_", self.run_name))
 
     def run(self, cb):
         if self.distributed_mode:
@@ -86,7 +90,7 @@ class Solver(BaseSolver):
     def _run_with_context(self, cb, ctx):
         device = get_device_from_context(ctx)
         profiler = create_profiler(
-            self.profiler_mode, device, self.name,
+            self.profiler_mode, device, self.run_name,
             warmup=self.profiler_warmup, active=self.profiler_active,
             trace_dir=self.profiler_trace_dir,
             per_step=self.profiler_per_step,
@@ -111,12 +115,13 @@ class Solver(BaseSolver):
                 distribute_denoiser=self.distribute_denoiser,
                 init_method=self.init_method,
                 norm_strategy=self.norm_strategy,
+                compile=self.compile,
             )
             self._algo.run(cb)
         profiler.finalize(ctx)
 
     def get_result(self):
-        result = dict(name=self.name)
+        result = dict(name=self.run_name)
         result.update(self._algo.get_result())
         return result
 
