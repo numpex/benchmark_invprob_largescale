@@ -8,6 +8,7 @@ from toolsbench.profiler import (
     NullProfiler,
     CustomProfiler,
     TorchProfiler,
+    NvidiaProfiler,
 )
 from toolsbench.profiler.torch_profiler import _group_by_key
 
@@ -160,6 +161,9 @@ class TestCreateProfiler:
         assert p._warmup == 3
         assert p._active == 5
 
+    def test_nvidia_mode_returns_nvidia_profiler(self):
+        assert isinstance(create_profiler("nvidia", "cpu", "run"), NvidiaProfiler)
+
 
 # ---------------------------------------------------------------------------
 # TorchProfiler
@@ -269,3 +273,51 @@ class TestTorchProfiler:
         assert cpu_view.cpu_time_total > 0 and cuda_view.cpu_time_total == 0
         a, b = cpu_view.device_time_total, cuda_view.device_time_total
         assert abs(a - b) <= 0.05 * max(a, b)  # equal within 5% (jitter)
+
+
+# ---------------------------------------------------------------------------
+# NvidiaProfiler
+# ---------------------------------------------------------------------------
+
+class TestNvidiaProfiler:
+
+    def test_warmup_skips_first_n_iterations(self):
+        p = NvidiaProfiler(device="cpu", name="test", warmup=2)
+        with p:
+            for _ in range(4):
+                with p.track_step("grad"):
+                    pass
+                p.end_iteration()
+        assert len(p._all_results) == 2
+
+    def test_active_stops_after_n_iterations(self):
+        p = NvidiaProfiler(device="cpu", name="test", warmup=0, active=2)
+        with p:
+            for _ in range(5):
+                with p.track_step("grad"):
+                    pass
+                p.end_iteration()
+        assert len(p._all_results) == 2
+
+    def test_end_iteration_stores_total_and_gpu(self):
+        p = NvidiaProfiler(device="cpu", name="test")
+        with p:
+            with p.track_step("step"):
+                pass
+            p.end_iteration()
+        metrics = p.get_current_metrics()
+        assert "total_time_sec" in metrics
+        assert "max_gpu_mb" in metrics
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+    def test_no_nvtx_range_during_warmup(self):
+        """On CPU, _has_cuda=False already skips NVTX regardless of warmup,
+        so this needs a real GPU to actually exercise the _is_recording()
+        guard added to _push_iter_range/track_step."""
+        p = NvidiaProfiler(device="cuda", name="test", warmup=1)
+        with p:
+            assert p._iter_range_open is False  # iter 0 = warmup: no range opened
+            with p.track_step("grad"):
+                pass
+            p.end_iteration()  # crosses the warmup boundary
+            assert p._iter_range_open is True   # iter 1 = first recorded iter: range open
