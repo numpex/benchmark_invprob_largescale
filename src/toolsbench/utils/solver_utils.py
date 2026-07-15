@@ -5,7 +5,6 @@ initialization, normalization strategies, and training curve plotting,
 used by both single-GPU and distributed PnP solvers.
 """
 
-from pathlib import Path
 
 import torch
 import copy

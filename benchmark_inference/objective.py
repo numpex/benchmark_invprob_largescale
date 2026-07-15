@@ -5,7 +5,6 @@ and optionally saves comparison figures for visual inspection.
 """
 
 import math
-from pathlib import Path
 
 import torch
 from benchopt import BaseObjective

@@ -11,6 +11,7 @@ from toolsbench.visualization.common import (
 )
 from toolsbench.visualization.inference.compile_speedup import (
     create_compile_speedup_visualizations,
+    create_denoiser_compile_visualizations,
 )
 from toolsbench.visualization.inference.quality import create_quality_visualizations
 from toolsbench.visualization.inference.scaling import create_scaling_visualizations
@@ -67,6 +68,18 @@ def _build_inference_parser() -> argparse.ArgumentParser:
         help="Visualize torch.compile 1st-iteration vs stable-iteration speedup.",
     )
     _add_results_args(compile_speedup, DEFAULT_INFERENCE_OUTPUT_DIR)
+
+    denoiser_compile = subparsers.add_parser(
+        "denoiser_compile",
+        aliases=["denoiser-compile"],
+        help="Visualize denoiser eager-vs-compiled steady-state speedup (2D/3D).",
+    )
+    _add_results_args(denoiser_compile, DEFAULT_INFERENCE_OUTPUT_DIR)
+    denoiser_compile.add_argument(
+        "--roofline",
+        action="store_true",
+        help="Also plot the roofline (arithmetic intensity vs speedup).",
+    )
     return parser
 
 
@@ -145,6 +158,10 @@ def _run_inference(args, parser: argparse.ArgumentParser) -> list[Path]:
         return [create_quality_visualizations(args.results, Path(args.output_dir))]
     if experiment == "compile_speedup":
         return [create_compile_speedup_visualizations(args.results, Path(args.output_dir))]
+    if experiment == "denoiser_compile":
+        return [create_denoiser_compile_visualizations(
+            args.results, Path(args.output_dir), roofline=args.roofline
+        )]
     parser.error(f"Unknown inference experiment: {args.experiment}")
     return []
 

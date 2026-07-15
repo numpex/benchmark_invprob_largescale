@@ -16,7 +16,6 @@ from deepinv.distributed import DistributedContext, distribute
 from deepinv.optim import PGD
 from deepinv.optim.data_fidelity import L2
 from deepinv.optim.prior import PnP
-from deepinv.physics import Physics
 from deepinv.training import Trainer
 from toolsbench.utils import create_drunet_denoiser
 from toolsbench.utils.solver_utils import (
@@ -49,8 +48,8 @@ class BenchTrainer(Trainer):
         with self.profiler.track_step("forward"):
             x_net = self.model_inference(y=y, physics=physics, x=x, train=True)
             loss_total = 0
-            for k, l in enumerate(self.losses):
-                loss = l(
+            for k, loss_fn in enumerate(self.losses):
+                loss = loss_fn(
                     x=x,
                     x_net=x_net,
                     y=y,

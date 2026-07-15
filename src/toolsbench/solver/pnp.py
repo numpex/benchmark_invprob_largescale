@@ -1,10 +1,9 @@
-from typing import Callable
 
 import torch
 from deepinv.distributed import distribute
 from deepinv.optim.data_fidelity import L2
 from deepinv.optim.prior import PnP
-from deepinv.physics import Physics, StackedPhysics, stack
+from deepinv.physics import Physics, stack
 from toolsbench.utils import create_drunet_denoiser
 from toolsbench.utils.solver_utils import (
     distributed_callback_iter,
