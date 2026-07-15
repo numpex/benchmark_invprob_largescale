@@ -1,67 +1,12 @@
 import torch
 from deepinv.distributed import distribute
-from deepinv.physics import Physics, stack
 
 from toolsbench.utils import create_denoiser
 from toolsbench.utils.solver_utils import (
     distributed_callback_iter,
-    initialize_reconstruction,
-    measurement_to_device,
+    profile_roofline,
     sync_and_barrier,
 )
-
-
-def profile_roofline(model, x, sigma, bytes_per_elem=4):
-    """FLOPs, memory traffic and arithmetic intensity of one forward pass.
-
-    Counts conv/linear FLOPs and the bytes touched by every leaf module
-    (inputs, outputs, weights) through forward hooks, so the numbers describe
-    the denoiser workload itself, independent of how it is executed.
-    """
-    total_flops, total_bytes = [0], [0]
-
-    def hook(module, inp, out):
-        for t in inp:
-            if isinstance(t, torch.Tensor):
-                total_bytes[0] += t.numel() * bytes_per_elem
-        if isinstance(out, torch.Tensor):
-            total_bytes[0] += out.numel() * bytes_per_elem
-        weight = getattr(module, "weight", None)
-        if weight is not None:
-            total_bytes[0] += weight.numel() * bytes_per_elem
-
-        conv_types = (
-            torch.nn.Conv2d, torch.nn.Conv3d,
-            torch.nn.ConvTranspose2d, torch.nn.ConvTranspose3d,
-        )
-        if isinstance(module, conv_types) and isinstance(out, torch.Tensor):
-            weight = module.weight
-            out_spatial = out.numel() // (out.shape[0] * out.shape[1])
-            kernel_ops = int(torch.tensor(weight.shape[1:]).prod().item())
-            batch = inp[0].shape[0] if isinstance(inp[0], torch.Tensor) else 1
-            total_flops[0] += 2 * kernel_ops * weight.shape[0] * out_spatial * batch
-        elif isinstance(module, torch.nn.Linear) and isinstance(inp[0], torch.Tensor):
-            batch = int(torch.tensor(inp[0].shape[:-1]).prod().item())
-            total_flops[0] += 2 * module.in_features * module.out_features * batch
-
-    hooks = [
-        m.register_forward_hook(hook)
-        for m in model.modules()
-        if not list(m.children())
-    ]
-    try:
-        with torch.no_grad():
-            model(x, sigma=sigma)
-    finally:
-        for h in hooks:
-            h.remove()
-
-    flops, mem_bytes = total_flops[0], total_bytes[0]
-    return dict(
-        flops=flops,
-        mem_bytes=mem_bytes,
-        arith_intensity=flops / mem_bytes if mem_bytes > 0 else 0.0,
-    )
 
 
 class DenoiserSolver:
@@ -89,7 +34,6 @@ class DenoiserSolver:
         *,
         denoiser="drunet",
         denoiser_sigma=0.05,
-        init_method="pseudo_inverse",
         compile=None,
         distribute_denoiser=False,
         patch_size=128,
@@ -110,7 +54,6 @@ class DenoiserSolver:
         self.distributed_mode = distributed_mode
         self.denoiser = denoiser
         self.denoiser_sigma = denoiser_sigma
-        self.init_method = init_method
         self.compile = compile
         self.distribute_denoiser = distribute_denoiser
         self.patch_size = patch_size
@@ -121,10 +64,10 @@ class DenoiserSolver:
         self.roofline_metrics = {}
 
     def run(self, cb):
-        measurement = measurement_to_device(self.problem.measurements, self.device)
-        physics = self._setup_physics()
 
-        self.reconstruction = self._initialize_reconstruction(physics, measurement)
+        self.reconstruction = torch.rand(
+            self.problem.ground_truth_shape, device=self.device
+        )
         print("Reconstruction initialized.")
 
         if self.roofline:
@@ -141,18 +84,6 @@ class DenoiserSolver:
         self._run_iterations(denoiser, cb)
 
         sync_and_barrier(self.device, self.ctx)
-
-    def _setup_physics(self):
-        """Physics is only needed to build the initial image."""
-        if callable(self.problem.physics) and not isinstance(self.problem.physics, Physics):
-            return stack(*[
-                self.problem.physics(i, self.device, None)
-                for i in range(self.problem.num_operators)
-            ])
-        physics = self.problem.physics
-        if hasattr(physics, "to"):
-            physics = physics.to(self.device)
-        return physics
 
     def _setup_denoiser(self):
         denoiser = create_denoiser(
@@ -180,18 +111,6 @@ class DenoiserSolver:
 
         return denoiser
 
-    def _initialize_reconstruction(self, physics, measurement):
-        with torch.no_grad():
-            return initialize_reconstruction(
-                signal_shape=self.problem.ground_truth_shape,
-                operator=physics,
-                measurements=measurement,
-                device=self.device,
-                method=self.init_method,
-                clip_range=(self.problem.min_pixel, self.problem.max_pixel),
-                weights=self.problem.invprob_kwargs.get("weights") if self.problem.invprob_kwargs else None,
-            )
-
     def _profile_roofline(self):
         """Roofline of one un-tiled, eager forward pass on the full image.
 
@@ -216,10 +135,6 @@ class DenoiserSolver:
         with torch.no_grad():
             for _ in distributed_callback_iter(cb, self.distributed_mode, self.device, self.ctx):
                 with self.profiler.track_step("denoise"):
-                    # .clone() copies the output out of torch.compile's static
-                    # CUDA-graph buffer (mode="max-autotune"); without it, feeding
-                    # the output back as the next input raises "accessing tensor
-                    # output of CUDAGraphs that has been overwritten".
                     self.reconstruction = denoiser(
                         self.reconstruction, sigma=self.denoiser_sigma
                     ).clone()

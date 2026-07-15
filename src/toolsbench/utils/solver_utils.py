@@ -182,3 +182,56 @@ def setup_distributed_env() -> int:
     except (ImportError, RuntimeError) as e:
         print(f"Running in non-distributed mode: {e}")
         return 1
+
+
+def profile_roofline(model, x, sigma, bytes_per_elem=4):
+    """FLOPs, memory traffic and arithmetic intensity of one forward pass.
+
+    Counts conv/linear FLOPs and the bytes touched by every leaf module
+    (inputs, outputs, weights) through forward hooks, so the numbers describe
+    the model workload itself, independent of how it is executed.
+    """
+    total_flops, total_bytes = [0], [0]
+
+    def hook(module, inp, out):
+        for t in inp:
+            if isinstance(t, torch.Tensor):
+                total_bytes[0] += t.numel() * bytes_per_elem
+        if isinstance(out, torch.Tensor):
+            total_bytes[0] += out.numel() * bytes_per_elem
+        weight = getattr(module, "weight", None)
+        if weight is not None:
+            total_bytes[0] += weight.numel() * bytes_per_elem
+
+        conv_types = (
+            torch.nn.Conv2d, torch.nn.Conv3d,
+            torch.nn.ConvTranspose2d, torch.nn.ConvTranspose3d,
+        )
+        if isinstance(module, conv_types) and isinstance(out, torch.Tensor):
+            weight = module.weight
+            out_spatial = out.numel() // (out.shape[0] * out.shape[1])
+            kernel_ops = int(torch.tensor(weight.shape[1:]).prod().item())
+            batch = inp[0].shape[0] if isinstance(inp[0], torch.Tensor) else 1
+            total_flops[0] += 2 * kernel_ops * weight.shape[0] * out_spatial * batch
+        elif isinstance(module, torch.nn.Linear) and isinstance(inp[0], torch.Tensor):
+            batch = int(torch.tensor(inp[0].shape[:-1]).prod().item())
+            total_flops[0] += 2 * module.in_features * module.out_features * batch
+
+    hooks = [
+        m.register_forward_hook(hook)
+        for m in model.modules()
+        if not list(m.children())
+    ]
+    try:
+        with torch.no_grad():
+            model(x, sigma=sigma)
+    finally:
+        for h in hooks:
+            h.remove()
+
+    flops, mem_bytes = total_flops[0], total_bytes[0]
+    return dict(
+        flops=flops,
+        mem_bytes=mem_bytes,
+        arith_intensity=flops / mem_bytes if mem_bytes > 0 else 0.0,
+    )

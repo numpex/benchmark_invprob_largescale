@@ -24,7 +24,6 @@ class Solver(BaseSolver):
     parameters = {
         "denoiser": ["drunet"],
         "denoiser_sigma": [0.05],
-        "init_method": ["pseudo_inverse"],
         "compile": [None],
         "distribute_denoiser": [False],
         "patch_size": [128],
@@ -105,7 +104,6 @@ class Solver(BaseSolver):
                 distributed_mode=self.distributed_mode,
                 denoiser=self.denoiser,
                 denoiser_sigma=self.denoiser_sigma,
-                init_method=self.init_method,
                 compile=self.compile,
                 distribute_denoiser=self.distribute_denoiser,
                 patch_size=self.patch_size,

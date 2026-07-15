@@ -23,7 +23,6 @@ solver:
   - Denoiser:
       denoiser: ["unet", "dncnn", "drunet"]
       denoiser_sigma: 0.1
-      init_method: ["zeros"]
       compile: ["None", "pre"]
       distribute_denoiser: [false]
       profiler_mode: custom
