@@ -31,6 +31,18 @@ solver:
       slurm_gres: ["gpu:1"]
       slurm_ntasks_per_node: [1]
 
+      slurm_account, slurm_constraint, slurm_qos, slurm_setup:
+        - - "..@a100" #your account
+          - a100
+          - qos_gpu_a100-t3
+          - ["module purge", "module load arch/a100", "module load pytorch-gpu/py3/2.7.0", "export NCCL_DEBUG=INFO"]
+        - - "..@h100" #your account
+          - h100
+          - qos_gpu_h100-t3
+          - ["module purge", "module load arch/h100", "module load pytorch-gpu/py3/2.7.0", "export NCCL_DEBUG=INFO"]
+
+
+
 max-runs: 10
 n-repetitions: 1
 plot: true
