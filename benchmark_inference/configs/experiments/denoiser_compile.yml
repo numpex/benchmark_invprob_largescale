@@ -1,0 +1,49 @@
+# torch.compile benchmark for denoiser forward passes.
+#   - architectures UNet, DnCNN, DRUNet (channels=3)
+#   - 2D shapes 512, 1024, 2048  and  3D shapes 128^3, 4x512x512, 16x512x512
+#   - eager (None) vs torch.compile(fullgraph=True, mode="max-autotune") = "pre"
+#   - single GPU, no distribution
+# Each iteration is a single denoiser call (x <- denoiser(x)).
+# ALWAYS RUN WITH --no-cache. Without --no-cache you get stale timings when you change the code or switch GPU, e.g.:
+#   benchopt run benchmark_inference --config <this file> --no-cache
+# (equivalently, `rm -rf benchmark_inference/__cache__` before each run.)
+
+objective:
+  - reconstruction_objective
+
+dataset:
+  - simulated:
+      image_size: [512, 1024, 2048, [128, 128, 128], [8, 512, 512], [16, 512, 512]]
+      channels: 3
+      num_operators: 1
+      noise_level: 0.1
+      seed: 0
+
+solver:
+  - Denoiser:
+      denoiser: ["unet", "dncnn", "drunet"]
+      denoiser_sigma: 0.1
+      compile: ["None", "pre"]
+      distribute_denoiser: [false]
+      profiler_mode: custom
+      profiler_warmup: 5
+      profiler_active: 0 # record all iterations
+      slurm_gres: ["gpu:1"]
+      slurm_ntasks_per_node: [1]
+
+      slurm_account, slurm_constraint, slurm_qos, slurm_setup:
+        - - "..@a100" #your account
+          - a100
+          - qos_gpu_a100-t3
+          - ["module purge", "module load arch/a100", "module load pytorch-gpu/py3/2.7.0", "export NCCL_DEBUG=INFO"]
+        - - "..@h100" #your account
+          - h100
+          - qos_gpu_h100-t3
+          - ["module purge", "module load arch/h100", "module load pytorch-gpu/py3/2.7.0", "export NCCL_DEBUG=INFO"]
+
+
+
+max-runs: 10
+n-repetitions: 1
+plot: true
+html: true

@@ -1,0 +1,35 @@
+# Benchopt configuration for 2D tomography testing
+# This file specifies testing with Shepp-Logan phantom
+
+# Objective filter
+objective:
+  - reconstruction_objective
+
+# Dataset filters (with parameters)
+dataset:
+  - tomography_2d:
+      image_size: 4096
+      num_operators: 2
+      num_angles: 100
+      noise_level: 0.01
+
+# Solver filters (with parameters)
+solver:
+  - PnP:
+      denoiser: drunet
+      denoiser_sigma: 0.01
+      init_method: ["zeros"]
+      compile : ["None", "pre", "post","fused"]
+      profiler_mode: custom
+      profiler_warmup: 0
+      profiler_active: 10 # record all remaining iterations after warmup 
+      slurm_gres, slurm_ntasks_per_node, distribute_physics, distribute_denoiser, patch_size, overlap, max_batch_size: [
+        ["gpu:1", 1, false, false, 0, 0, 0],
+        ["gpu:2", 2, true, true, 448, 32, 0],
+      ]
+
+# Run parameters
+max-runs: 10
+n-repetitions: 3
+plot: true
+html: true

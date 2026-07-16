@@ -1,11 +1,12 @@
 import re
 
 from benchopt import BaseSolver
+from benchopt.stopping_criterion import NoCriterion
 from deepinv.distributed import DistributedContext
 
 from toolsbench.invprob.base import InvProb
 from toolsbench.profiler import create_profiler
-from toolsbench.solver.pnp import PnPSolver
+from toolsbench.solver.denoiser import DenoiserSolver
 from toolsbench.utils.solver_utils import (
     build_solver_name,
     get_device_from_context,
@@ -14,30 +15,30 @@ from toolsbench.utils.solver_utils import (
 
 
 class Solver(BaseSolver):
-    """PnP solver."""
+    """Denoiser throughput probe: x <- denoiser(x), eager vs torch.compile."""
 
-    name = "PnP"
+    name = "Denoiser"
     sampling_strategy = "callback"
+    stopping_criterion = NoCriterion(strategy="callback")
 
     parameters = {
         "denoiser": ["drunet"],
+        "denoiser_sigma": [0.05],
+        "compile": [None],
+        "distribute_denoiser": [False],
         "patch_size": [128],
         "overlap": [32],
         "max_batch_size": [0],
-        "denoiser_lambda_relaxation": [None],
-        "step_size": [None],
-        "step_size_scale": [0.99],
-        "denoiser_sigma": [0.05],
-        "distribute_physics": [False],
-        "distribute_denoiser": [False],
-        "init_method": ["pseudo_inverse"],
-        "norm_strategy": ["clip"],
-        "compile": [None],
+        "roofline": [True],
         "slurm_nodes": [1],
         "slurm_ntasks_per_node": [1],
         "slurm_gres": ["gpu:1"],
+        "slurm_account": [None],
+        "slurm_constraint": [None],
+        "slurm_qos": [None],
+        "slurm_setup": [None],
         "torchrun_nproc_per_node": [1],
-        "name_prefix": ["pnp"],
+        "name_prefix": ["denoiser"],
         "profiler_mode": ["custom"],
         "profiler_warmup": [0],
         "profiler_active": [0],
@@ -80,7 +81,9 @@ class Solver(BaseSolver):
         self.name = re.sub(r"_rank\d+$", "", re.sub(r"_\d{8}_\d{6}_", "_", self.run_name))
 
     def run(self, cb):
-        if self.distributed_mode:
+        # distribute() tiles the denoiser even on a single rank, so a context is
+        # needed whenever the denoiser is distributed, not only in multi-GPU runs.
+        if self.distributed_mode or self.distribute_denoiser:
             with DistributedContext(seed=42, cleanup=True) as ctx:
                 self.ctx = ctx
                 self._run_with_context(cb, ctx)
@@ -97,25 +100,20 @@ class Solver(BaseSolver):
             repeat=self.profiler_repeat,
         )
         with profiler:
-            self._algo = PnPSolver(
+            self._algo = DenoiserSolver(
                 problem=self.problem,
                 device=device,
                 profiler=profiler,
                 ctx=ctx,
                 distributed_mode=self.distributed_mode,
                 denoiser=self.denoiser,
+                denoiser_sigma=self.denoiser_sigma,
+                compile=self.compile,
+                distribute_denoiser=self.distribute_denoiser,
                 patch_size=self.patch_size,
                 overlap=self.overlap,
                 max_batch_size=self.max_batch_size,
-                step_size=self.step_size,
-                step_size_scale=self.step_size_scale,
-                denoiser_sigma=self.denoiser_sigma,
-                denoiser_lambda_relaxation=self.denoiser_lambda_relaxation,
-                distribute_physics=self.distribute_physics,
-                distribute_denoiser=self.distribute_denoiser,
-                init_method=self.init_method,
-                norm_strategy=self.norm_strategy,
-                compile=self.compile,
+                roofline=self.roofline,
             )
             self._algo.run(cb)
         profiler.finalize(ctx)

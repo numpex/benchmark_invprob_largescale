@@ -1,10 +1,9 @@
-from typing import Callable
 
 import torch
 from deepinv.distributed import distribute
 from deepinv.optim.data_fidelity import L2
 from deepinv.optim.prior import PnP
-from deepinv.physics import Physics, StackedPhysics, stack
+from deepinv.physics import Physics, stack
 from toolsbench.utils import create_drunet_denoiser
 from toolsbench.utils.solver_utils import (
     distributed_callback_iter,
@@ -50,6 +49,7 @@ class PnPSolver:
         distribute_denoiser=False,
         init_method="pseudo_inverse",
         norm_strategy="clip",
+        compile=None,
     ):
         self.problem = problem
         self.device = device
@@ -68,6 +68,7 @@ class PnPSolver:
         self.distribute_denoiser = distribute_denoiser
         self.init_method = init_method
         self.norm_strategy = norm_strategy
+        self.compile = compile
         self.reconstruction = None
 
     def run(self, cb):
@@ -96,6 +97,22 @@ class PnPSolver:
         step_size = self._compute_step_size(physics)
         print("Step size computed:", step_size)
 
+        if self.compile == "pre":
+            local_ops = (
+                list(physics.local_physics) if hasattr(physics, "local_physics")
+                else list(physics.physics_list) if hasattr(physics, "physics_list")
+                else [physics]
+            )
+            for op in local_ops:
+                if hasattr(op, "xray_transform"):
+                    # ASTRA-backed ops rebuild a fresh type(self) on every
+                    # call, so torch.compile can never cache a graph here.
+                    continue
+                if hasattr(op, "A"):
+                    op.A = torch.compile(op.A)
+                if hasattr(op, "A_adjoint"):
+                    op.A_adjoint = torch.compile(op.A_adjoint)
+
         self.reconstruction = self._initialize_reconstruction(physics, measurement)
         print("Reconstruction initialized.")
 
@@ -115,6 +132,9 @@ class PnPSolver:
         else:
             raise ValueError(f"Unknown denoiser: {self.denoiser}")
 
+        if self.compile == "pre":
+            denoiser = torch.compile(denoiser)
+
         if self.ctx is not None and self.distribute_denoiser:
             denoiser = distribute(
                 denoiser,
@@ -125,13 +145,20 @@ class PnPSolver:
                     (-3, -2, -1) if len(self.problem.ground_truth_shape) == 5 else (-2, -1)
                 ),
                 max_batch_size=self.max_batch_size,
+                type_object="denoiser",
             )
+
+        if self.compile == "post":
+            denoiser = torch.compile(denoiser)
 
         prior = PnP(denoiser=denoiser)
         data_fidelity = L2()
 
         if self.ctx is not None and self.distribute_physics:
             data_fidelity = distribute(data_fidelity, self.ctx)
+
+        if self.compile == "post":
+            data_fidelity.grad = torch.compile(data_fidelity.grad)
 
         return prior, data_fidelity
 
@@ -155,6 +182,31 @@ class PnPSolver:
 
     def _run_iterations(self, prior, data_fidelity, physics, measurements, step_size, cb):
         sig_min, sig_max = self.problem.min_pixel, self.problem.max_pixel
+
+        if self.compile == "fused":
+            if self.norm_strategy != "clip":
+                raise ValueError("compile='fused' only supports norm_strategy='clip'")
+
+            def pnp_step(x):
+                grad = data_fidelity.grad(x, measurements, physics)
+                x = x - step_size * grad
+                if self.denoiser_lambda_relaxation is None:
+                    x = prior.prox(x, sigma_denoiser=self.denoiser_sigma)
+                else:
+                    denoised = prior.prox(x, sigma_denoiser=self.denoiser_sigma)
+                    lamda = self.denoiser_lambda_relaxation
+                    alpha = (step_size * lamda) / (1 + step_size * lamda)
+                    x = (1 - alpha) * x + alpha * denoised
+                return torch.clamp(x, sig_min, sig_max)
+
+            pnp_step = torch.compile(pnp_step)
+
+            with torch.no_grad():
+                for _ in distributed_callback_iter(cb, self.distributed_mode, self.device, self.ctx):
+                    with self.profiler.track_step("pnp"):
+                        self.reconstruction = pnp_step(self.reconstruction)
+                    self.profiler.end_iteration(self.ctx)
+            return
 
         with torch.no_grad():
             for _ in distributed_callback_iter(cb, self.distributed_mode, self.device, self.ctx):

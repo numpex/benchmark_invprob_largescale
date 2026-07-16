@@ -1,6 +1,7 @@
 backend: submitit
-slurm_time: 30
+slurm_time: 1800
 slurm_stderr_to_stdout: True  # redirect all outputs to a single log file
+slurm_python: python
 slurm_additional_parameters:
   cpus-per-task: 10           # requires 10 CPUs per job
   qos: qos_gpu-dev              # Queue used for the jobs

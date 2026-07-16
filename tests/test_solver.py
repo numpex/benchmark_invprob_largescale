@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from toolsbench.invprob.base import InvProb
 from toolsbench.profiler import NullProfiler
+from toolsbench.solver.denoiser import DenoiserSolver
 from toolsbench.solver.pnp import PnPSolver
 from toolsbench.solver.unrolled_pnp import UnrolledPnPSolver
 
@@ -77,6 +78,7 @@ def _make_solver(**attrs):
         distribute_denoiser=False,
         distribute_physics=False,
         init_method="pseudo_inverse",
+        compile=None,
         reconstruction=torch.zeros(1, 1, 8, 8),
     )
     defaults.update(attrs)
@@ -271,3 +273,36 @@ class TestUnrolledPnPSolverGetResult:
         result = solver.get_result()
         assert result["total_time_sec"] == 0.5
         assert result["max_gpu_mb"] == 100.0
+
+
+# ---------------------------------------------------------------------------
+# DenoiserSolver
+# ---------------------------------------------------------------------------
+
+class TestDenoiserSolver:
+
+    def test_compile_post_requires_distribute(self):
+        with pytest.raises(ValueError, match="compile='post' requires"):
+            DenoiserSolver(
+                _make_objective(),
+                torch.device("cpu"),
+                NullProfiler(),
+                None,
+                False,
+                compile="post",
+                distribute_denoiser=False,
+            )
+
+    def test_get_result_includes_roofline_and_profiler(self):
+        solver = DenoiserSolver.__new__(DenoiserSolver)
+        solver.reconstruction = torch.ones(1, 1, 4, 4)
+        solver.roofline_metrics = {"flops": 100, "mem_bytes": 10, "arith_intensity": 10.0}
+        solver.profiler = MagicMock()
+        solver.profiler.get_current_metrics.return_value = {"denoise_time_sec": 0.5}
+
+        result = solver.get_result()
+
+        assert torch.equal(result["reconstruction"], torch.ones(1, 1, 4, 4))
+        assert result["flops"] == 100
+        assert result["arith_intensity"] == 10.0
+        assert result["denoise_time_sec"] == 0.5

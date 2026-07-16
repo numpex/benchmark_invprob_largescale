@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from toolsbench.invprob.base import InvProbConfig
+from toolsbench.invprob.denoising import DenoisingInvProb
 from toolsbench.invprob.multiframe_superres import MultiFrameSuperResInvProb
 from toolsbench.invprob.tomography import TomographyInvProb
 
@@ -121,3 +122,28 @@ class TestTomographyInvProb:
             (2, 4),
             (4, 6),
         ]
+
+
+class TestDenoisingInvProb:
+    def _cfg(self, size, num_frames=1):
+        return InvProbConfig(
+            size=size,
+            batch_size=1,
+            channels=3,
+            data_type=torch.float32,
+            device=torch.device("cpu"),
+            params={"num_frames": num_frames, "noise_std": 0.05, "data": "synthetic"},
+        )
+
+    def test_denoising_invprob_3d(self):
+        # 3D volume with stacked, independently-noised measurements.
+        ip = DenoisingInvProb().get_invprob(self._cfg((4, 16, 16), num_frames=3))
+        assert tuple(ip.ground_truth.shape) == (1, 3, 4, 16, 16)
+        assert ip.num_operators == 3
+        assert len(ip.measurements) == 3
+        assert not torch.allclose(ip.measurements[0], ip.measurements[1])
+
+    def test_denoising_invprob_2d(self):
+        ip = DenoisingInvProb().get_invprob(self._cfg((16, 16)))
+        assert tuple(ip.ground_truth.shape) == (1, 3, 16, 16)
+        assert ip.num_operators == 1

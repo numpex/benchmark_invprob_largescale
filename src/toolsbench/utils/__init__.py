@@ -16,6 +16,7 @@ try:
 except ImportError:
     pass
 
+import inspect
 import math
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -24,12 +25,14 @@ import numpy as np
 try:
     import torch
     from deepinv.utils.demo import download_example, load_image
-    from deepinv.models import DRUNet
+    from deepinv.models import DRUNet, DnCNN, UNet
 except ImportError:
     torch = None
     download_example = None
     load_image = None
     DRUNet = None
+    DnCNN = None
+    UNet = None
 
 
 def tensor_to_numpy(tensor, clip=True):
@@ -274,11 +277,13 @@ def load_cached_example(name, cache_dir=None, **kwargs):
         return load_image(str(cached_file), **kwargs)
 
 
-def create_drunet_denoiser(ground_truth_shape, device="cpu", dtype=None):
-    """Create a DRUNet denoiser appropriate for the given ground truth shape.
+def create_denoiser(arch, ground_truth_shape, device="cpu", dtype=None):
+    """Create a denoiser appropriate for the given ground truth shape.
 
     Parameters
     ----------
+    arch : str
+        Architecture name: 'drunet', 'unet' or 'dncnn' (case-insensitive).
     ground_truth_shape : tuple
         Shape of the ground truth tensor: (B, C, H, W) for 2D or (B, C, D, H, W) for 3D.
     device : str or torch.device, optional
@@ -288,14 +293,21 @@ def create_drunet_denoiser(ground_truth_shape, device="cpu", dtype=None):
 
     Returns
     -------
-    DRUNet
-        Configured DRUNet denoiser model.
+    torch.nn.Module
+        Configured denoiser model.
     """
     if torch is None:
         raise ImportError("Torch is required to create a denoiser.")
 
     if dtype is None:
         dtype = torch.float32
+
+    architectures = {"drunet": DRUNet, "unet": UNet, "dncnn": DnCNN}
+    model_cls = architectures.get(str(arch).lower())
+    if model_cls is None:
+        raise ValueError(
+            f"Unknown denoiser: {arch}. Choose from {sorted(architectures)}."
+        )
 
     ndim = len(ground_truth_shape)
     if ndim == 4:
@@ -313,15 +325,20 @@ def create_drunet_denoiser(ground_truth_shape, device="cpu", dtype=None):
             f"Unsupported number of channels: {num_channels}. Expected 1 (grayscale) or 3 (color)."
         )
 
-    # For 3D, deepinv initialises 3D convolutions from 2D pretrained weights via download_2d.
-    pretrained = "download_2d" if dim == 3 else "download"
+    kwargs = dict(in_channels=num_channels, out_channels=num_channels, dim=dim)
+    if model_cls is DRUNet:
+        # For 3D, deepinv initialises 3D convolutions from 2D pretrained weights via download_2d.
+        kwargs["pretrained"] = "download_2d" if dim == 3 else "download"
+    elif "pretrained" in inspect.signature(model_cls.__init__).parameters:
+        # UNet / DnCNN have no pretrained weights matching these channel counts.
+        kwargs["pretrained"] = None
 
-    return DRUNet(
-        in_channels=num_channels,
-        out_channels=num_channels,
-        dim=dim,
-        pretrained=pretrained,
-    ).to(dtype).to(device)
+    return model_cls(**kwargs).to(dtype).to(device).eval()
+
+
+def create_drunet_denoiser(ground_truth_shape, device="cpu", dtype=None):
+    """Create a DRUNet denoiser appropriate for the given ground truth shape."""
+    return create_denoiser("drunet", ground_truth_shape, device=device, dtype=dtype)
 
 
 def compute_psnr(reconstruction, reference, max_pixel=1.0):
