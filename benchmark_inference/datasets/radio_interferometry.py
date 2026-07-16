@@ -11,9 +11,11 @@ from benchopt import BaseDataset, config
 from deepinv.distributed import DistributedContext
 
 from toolsbench.data import check_installed
+from toolsbench.data.radio_interferometry import RadioInterferometryData
 from toolsbench.invprob import InvProbConfig, RadioInterferometryInvProb
 from toolsbench.invprob.radio_interferometry import run_simulation
 from toolsbench.utils import setup_distributed_env
+from toolsbench.utils.radio_interferometry.radio_utils import get_fits_image_size
 
 
 BENCHMARK_DIR = Path(__file__).resolve().parents[1]
@@ -61,7 +63,6 @@ class Dataset(BaseDataset):
     install_script = "install_radio.sh"
 
     parameters = {
-        "image_size": [256],
         "fits_size": ["1024"],
         "noise_level": [0.1],
         "seed": [42],
@@ -133,19 +134,24 @@ class Dataset(BaseDataset):
     def get_data(self):
         setup_distributed_env()
         with DistributedContext(seed=self.seed, cleanup=False) as ctx:
+            data_path = Path(config.get_data_path(key="radio_interferometry"))
+            fits_path = RadioInterferometryData.select_fits_file(
+                data_path,
+                fits_size=str(self.fits_size),
+            )
+            image_size = get_fits_image_size(fits_path)
             invprob_conf = InvProbConfig(
-                size=(int(self.image_size), int(self.image_size)),
+                size=(image_size, image_size),
                 batch_size=1,
                 channels=1,
                 device=ctx.device,
-                data_path=Path(config.get_data_path(key="radio_interferometry")),
+                data_path=data_path,
                 params=self._invprob_params(),
             )
             return RadioInterferometryInvProb().get_invprob(invprob_conf).asdict()
 
     def _invprob_params(self) -> dict:
         return {
-            "image_size": int(self.image_size),
             "fits_size": str(self.fits_size),
             "noise_level": float(self.noise_level),
             "seed": int(self.seed),

@@ -3,7 +3,7 @@ objective:
 
 dataset:
   - tomography_2d:
-      image_size: 128
+      image_size: 1024
       batch_size: 1
       num_operators: 1
       num_angles: 30
