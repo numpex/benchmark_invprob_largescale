@@ -26,23 +26,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install project
-        run: uv sync --group test
+        run: uv sync --all-groups --all-extras
 
-      - name: Test benchmark inference
-        run: |
-          uv run benchopt run benchmark_inference/. \
-            --config benchmark_inference/configs/ci_smoke.yml \
-            --max-runs 1 \
-            --n-repetitions 1 \
-            --no-plot \
-            --no-html \
-            --no-display
+      - name: Tests
+        run: uv run pytest
 
-      - name: Test benchmark workflow
+      - name: Prepare benchmarks
         run: |
-          uv run benchopt run benchmark_workflows/. \
-            --max-runs 1 \
-            --n-repetitions 1 \
-            --no-plot \
-            --no-html \
-            --no-display
+          uv run benchopt prepare benchmark_inference/. --config benchmark_inference/configs/examples/multiframe_superres.yml
+          uv run benchopt prepare benchmark_inference/. --config benchmark_inference/configs/examples/tomography_2d.yml
+
+      - name: Run benchmarks
+        run: |
+          uv run benchopt run benchmark_inference/. --config benchmark_inference/configs/examples/multiframe_superres.yml

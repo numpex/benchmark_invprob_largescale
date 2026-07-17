@@ -5,12 +5,11 @@ and optionally saves comparison figures for visual inspection.
 """
 
 import math
-from pathlib import Path
 
 import torch
 from benchopt import BaseObjective
 from deepinv.loss.metric import PSNR, SSIM, MSE
-from astropy.io import fits
+
 
 from toolsbench.utils import save_comparison_figure
 
@@ -23,18 +22,17 @@ class Objective(BaseObjective):
     """
 
     name = "reconstruction_objective"
-    requirements = [
-        "pip::torch",
-        "astropy",
-        "pip::git+https://github.com/deepinv/deepinv.git@main",
-    ]
+
+    parameters = {
+        "save_output_figures": [False],
+    }
 
     # The three methods below define the links between the Dataset,
     # the Objective and the Solver.
     def set_data(
         self,
         ground_truth,
-        measurement,
+        measurements,
         physics,
         min_pixel=0.0,
         max_pixel=1.0,
@@ -48,7 +46,7 @@ class Objective(BaseObjective):
         ----------
         ground_truth : torch.Tensor
             Ground truth image.
-        measurement : torch.Tensor or TensorList
+        measurements : torch.Tensor or TensorList
             Noisy measurements.
         physics : Physics
             Forward operator.
@@ -64,7 +62,7 @@ class Objective(BaseObjective):
             Extra dataset-specific parameters forwarded to the solver
         """
         self.ground_truth = ground_truth
-        self.measurement = measurement
+        self.measurements = measurements
         self.physics = physics
         self._extra_kwargs = kwargs
         self.ground_truth_shape = (
@@ -87,7 +85,7 @@ class Objective(BaseObjective):
             Dictionary with measurement, physics, and metadata.
         """
         return dict(
-            measurement=self.measurement,
+            measurements=self.measurements,
             physics=self.physics,
             ground_truth_shape=self.ground_truth_shape,
             num_operators=self.num_operators,
@@ -164,28 +162,34 @@ class Objective(BaseObjective):
                 10.0 * math.log10(asinh_range**2 / mse_asinh) if mse_asinh > 0 else float("inf")
             )
 
-            # Save comparison figure
-            output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
             self.evaluation_count += 1
-            save_comparison_figure(
-                self.ground_truth,
-                reconstruction,
-                metrics={"psnr": psnr, "ssim": ssim, "mse": mse, "asinh_psnr": asinh_psnr},
-                output_dir=output_dir,
-                filename=f"eval_{self.evaluation_count:04d}.png",
-                evaluation_count=self.evaluation_count,
-                vmin=self.min_pixel,
-                vmax=self.max_pixel,
-            )
+            if self.save_output_figures:
+                # Save comparison figure
+                output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
+                save_comparison_figure(
+                    self.ground_truth,
+                    reconstruction,
+                    metrics={
+                        "psnr": psnr,
+                        "ssim": ssim,
+                        "mse": mse,
+                        "asinh_psnr": asinh_psnr,
+                    },
+                    output_dir=output_dir,
+                    filename=f"eval_{self.evaluation_count:04d}.png",
+                    evaluation_count=self.evaluation_count,
+                    vmin=self.min_pixel,
+                    vmax=self.max_pixel,
+                )
 
-            reconstruction_np = (
-                reconstruction.detach().cpu().to(torch.float32).numpy().squeeze()
-            )
-            fits_path = Path(output_dir) / (
-                f"eval_{self.evaluation_count:04d}_reconstruction.fits"
-            )
-            fits_path.parent.mkdir(parents=True, exist_ok=True)
-            fits.PrimaryHDU(reconstruction_np).writeto(fits_path, overwrite=True)
+            # reconstruction_np = (
+            #     reconstruction.detach().cpu().to(torch.float32).numpy().squeeze()
+            # )
+            # fits_path = Path(output_dir) / (
+            #     f"eval_{self.evaluation_count:04d}_reconstruction.fits"
+            # )
+            # fits_path.parent.mkdir(parents=True, exist_ok=True)
+            # fits.PrimaryHDU(reconstruction_np).writeto(fits_path, overwrite=True)
 
         # Return value (primary metric for stopping criterion) and additional metrics
         result = dict(value=-asinh_psnr, psnr=psnr, ssim=ssim, mse=mse, asinh_psnr=asinh_psnr)

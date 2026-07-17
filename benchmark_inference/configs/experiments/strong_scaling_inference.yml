@@ -1,0 +1,39 @@
+objective:
+  - reconstruction_objective:
+      save_output_figures: false
+
+dataset:
+  - multiframe_superres:
+      image_size: [2048, 4096, 8192]
+      num_operators: 8
+      noise_level: 0.1
+
+solver:
+  - PnP:
+      denoiser: drunet
+      denoiser_sigma: 0.005
+      step_size: 0.1
+      init_method: ["zeros"]
+      profiler_mode: custom
+      profiler_warmup: 0
+      profiler_active: 0
+      patch_size, overlap, max_batch_size: [
+        [448, 32, 32],
+        [960, 32, 12]
+      ]
+      slurm_gres, slurm_ntasks_per_node, slurm_nodes, distribute_physics, distribute_denoiser: [
+        ["gpu:1", 1, 1, false, false],
+        ["gpu:2", 2, 1, true, true],
+        ["gpu:4", 4, 1, true, true],
+        ["gpu:4", 4, 2, true, true],
+        ["gpu:4", 4, 4, true, true],
+        ["gpu:4", 4, 8, true, true],
+        ["gpu:4", 4, 16, true, true],
+      ]
+
+
+# Run parameters
+max-runs: 10
+n-repetitions: 1
+plot: true
+html: true

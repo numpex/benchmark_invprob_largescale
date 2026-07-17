@@ -1,0 +1,31 @@
+# Same as config_parallel.yml, but every job run through this config is
+# automatically profiled with nsys -- no need to wrap the benchopt command
+# yourself. Just use it like a normal --parallel-config:
+#   benchopt run . --parallel-config configs/config_parallel_nsys.yml --config ...
+# Produces one outputs/my_run_job<ID>_rank<N>.nsys-rep per GPU/rank.
+backend: submitit
+slurm_time: 1800
+slurm_stderr_to_stdout: True  # redirect all outputs to a single log file
+slurm_additional_parameters:
+  cpus-per-task: 10        # requires 20 CPUs per job
+  qos: qos_gpu-dev      # Queue used for the jobs
+  account:  #your_account_here
+  constraint: v100-32g
+slurm_setup:  # sbatch script commands added before the main job
+  # sbatch inherits the submitting shell's env (--export=ALL). If that shell
+  # was wrapped in `nsys profile`, its injection vars leak into this job and
+  # crash multi-GPU NCCL jobs -- clear them first.
+  - unset LD_PRELOAD
+  - unset CUDA_INJECTION64_PATH
+  - unset NVTX_INJECTION64_PATH
+  - unset NSYSDK_INJECTION64_PATH
+  - module purge
+  - module load pytorch-gpu/py3/2.7.0
+  - module load nvidia-nsight-systems/2024.7.1.84  
+  - export NCCL_DEBUG=INFO
+# Wraps the actual worker (not the outer submit script), so nsys sees real
+# GPU activity: submitit runs "<slurm_python> -u -m submitit.core._submit ...",
+# so prefixing nsys here profiles the real job. One file per rank/job via
+# %q{SLURM_JOB_ID}/%q{SLURM_PROCID}. Use this file only when you want a
+# trace; use config_parallel.yml for normal runs.
+slurm_python: nsys profile -o outputs/my_run_job%q{SLURM_JOB_ID}_rank%q{SLURM_PROCID} --force-overwrite=true --trace=cuda,nvtx --trace-fork-before-exec=true --cuda-memory-usage=true --sample=none python

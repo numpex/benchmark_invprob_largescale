@@ -1,130 +1,125 @@
-"""Training objective for unrolled models.
+"""Reconstruction objective for unrolled-model training benchmarking.
 
-This objective is designed for both training and inference solvers.
-It evaluates reconstruction quality using PSNR.
+Mirrors the inference objective: each benchopt iteration is one training step,
+the solver returns its current reconstruction, and the objective scores it with
+PSNR / SSIM / MSE.  The only difference from inference is that ``get_objective``
+also forwards ``ground_truth`` so the supervised training loss can use it.
 """
 
+
+import torch
 from benchopt import BaseObjective
+from deepinv.loss.metric import PSNR
 
 
 class Objective(BaseObjective):
-    """Training objective for unrolled reconstruction models.
-
-    Evaluates reconstruction quality using PSNR.
-    Supports both training solvers (with separate train/val sets) and
-    inference solvers (with single dataset).
-    """
+    """Training objective scoring reconstruction quality per training step."""
 
     name = "reconstruction_objective"
 
     def set_data(
         self,
-        train_dataloader=None,
-        val_dataloader=None,
-        physics=None,
+        ground_truth,
+        measurements,
+        physics,
         min_pixel=0.0,
         max_pixel=1.0,
-        num_operators=None,
         ground_truth_shape=None,
-        operator_norm=1.0,
-        operator_norm_map=None,
+        num_operators=None,
+        **kwargs,
     ):
         """Set the data from a Dataset to compute the objective.
 
         Parameters
         ----------
-        train_dataloader : DataLoader, optional
-            PyTorch DataLoader containing training ground truth and measurements.
-        val_dataloader : DataLoader
-            PyTorch DataLoader containing validation/test ground truth and measurements.
+        ground_truth : torch.Tensor
+            Ground truth image (used both for supervision and scoring).
+        measurements : torch.Tensor or TensorList
+            Noisy measurements.
         physics : Physics
             Forward operator.
-        min_pixel : float, optional
-            Minimum pixel value for metrics. Default: 0.0.
-        max_pixel : float, optional
-            Maximum pixel value for metrics. Default: 1.0.
-        num_operators : int, optional
-            Number of operators in stacked physics.
+        min_pixel, max_pixel : float, optional
+            Pixel value range for metrics.
         ground_truth_shape : tuple, optional
-            Shape of ground truth.
-
+            Shape of the ground truth tensor.
+        num_operators : int, optional
+            Number of operators in the stacked physics.
+        **kwargs :
+            Extra dataset-specific parameters forwarded to the solver.
         """
-        self.train_dataloader = train_dataloader
-        self.val_dataloader = val_dataloader
+        self.ground_truth = ground_truth
+        self.measurements = measurements
         self.physics = physics
+        self._extra_kwargs = kwargs
+        self.ground_truth_shape = (
+            ground_truth_shape if ground_truth_shape is not None else ground_truth.shape
+        )
         self.num_operators = num_operators if num_operators is not None else 1
+        self.psnr_metric = PSNR(max_pixel=max_pixel)
         self.min_pixel = min_pixel
         self.max_pixel = max_pixel
-        self.evaluation_count = 0
-        self.ground_truth_shape = ground_truth_shape
-        self.operator_norm = float(operator_norm)
-        self.operator_norm_map = (
-            operator_norm_map if operator_norm_map is not None else {}
-        )
 
     def get_objective(self):
-        """Returns a dict passed to Solver.set_objective method.
+        """Returns a dict passed to Solver.set_objective.
 
-        Returns
-        -------
-        dict
-            Dictionary with dataloader, physics, and metadata.
+        Includes ``ground_truth`` (unlike the inference objective) so the
+        supervised training loss can be computed.
         """
         return dict(
-            train_dataloader=self.train_dataloader,
-            val_dataloader=self.val_dataloader,
+            ground_truth=self.ground_truth,
+            measurements=self.measurements,
             physics=self.physics,
             ground_truth_shape=self.ground_truth_shape,
             num_operators=self.num_operators,
             min_pixel=self.min_pixel,
             max_pixel=self.max_pixel,
-            operator_norm=self.operator_norm,
-            operator_norm_map=self.operator_norm_map,
+            **self._extra_kwargs,
         )
 
-    def evaluate_result(self, val_psnr=None, **kwargs):
-        """Compute the objective value given the output of a solver.
-
-        Solvers always pre-compute and pass ``val_psnr`` directly.
+    def evaluate_result(self, reconstruction, name, ground_truth=None, **kwargs):
+        """Score the reconstruction returned by the solver for this step.
 
         Parameters
         ----------
-        val_psnr : float
-            Pre-computed validation PSNR returned by the solver.
+        reconstruction : torch.Tensor
+            Reconstruction from the current training step.
+        name : str
+            Name identifier for the solver/configuration.
         **kwargs : dict
-            Optional extra metrics (e.g. GPU memory, train PSNR).
+            Optional per-step / GPU metrics from the profiler.
 
         Returns
         -------
         dict
-            Dictionary with 'value' (negative PSNR for minimization) and metrics.
+            ``value`` (negative PSNR for minimization), ``psnr`` plus any forwarded metrics.
         """
-        if val_psnr is None:
-            raise ValueError("Solver must provide val_psnr.")
+        with torch.no_grad():
+            gt = ground_truth if ground_truth is not None else self.ground_truth
+            reconstruction = reconstruction.to(gt.device)
+            reconstruction = torch.clamp(
+                reconstruction, min=self.min_pixel, max=self.max_pixel
+            )
+            ground_truth = torch.clamp(
+                gt, min=self.min_pixel, max=self.max_pixel
+            )
 
-        avg_psnr = val_psnr
+            psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
+            psnr = (
+                psnr_tensor.mean().item()
+                if psnr_tensor.numel() > 1
+                else psnr_tensor.item()
+            )
 
-        # Return value (primary metric for stopping criterion) and additional metrics
-        result = dict(value=-avg_psnr, val_psnr=avg_psnr)
 
-        self.evaluation_count += 1
-
-        # Add all non-None metrics from kwargs to result
+        result = dict(value=-psnr, psnr=psnr)
         for key, value in kwargs.items():
             if value is not None:
                 result[key] = value
-
         return result
 
     def get_one_result(self):
-        """Return one solution for which the objective can be evaluated.
-
-        This is used by benchopt to check that the objective can be evaluated.
-
-        Returns
-        -------
-        dict
-            Dictionary with dummy result.
-        """
-
-        return {"name": "test_result", "val_psnr": 0.0}
+        """Return one solution for which the objective can be evaluated."""
+        return dict(
+            reconstruction=self.ground_truth + self.ground_truth.std(),
+            name="test_result",
+        )

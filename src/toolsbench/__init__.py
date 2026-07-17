@@ -1,6 +1,9 @@
 """toolsbench package."""
 
+from __future__ import annotations
+
 import builtins
+import sys
 import typing
 
 # SimAI-Bench may eagerly import Dragon symbols in worker contexts.
@@ -13,9 +16,22 @@ if not hasattr(builtins, "Sequence"):
     builtins.Sequence = typing.Sequence
 
 
-def main():
-    """Console entry point placeholder."""
+def main(argv: list[str] | None = None) -> int:
+    """Console entry point."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["vizinference"]:
+        from toolsbench.visualization.cli import main as visualization_main
+
+        return visualization_main("vizinference", argv[1:])
+    if argv[:1] == ["viztraining"]:
+        from toolsbench.visualization.cli import main as visualization_main
+
+        return visualization_main("viztraining", argv[1:])
+
     print(
         "toolsbench installs shared benchmark utilities. "
-        "Run benchmarks with `benchopt run <benchmark_path>`."
+        "Run benchmarks with `benchopt run <benchmark_path>` or create "
+        "visualizations with `toolsbench vizinference --help` or "
+        "`toolsbench viztraining --help`."
     )
+    return 0

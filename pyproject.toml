@@ -8,20 +8,20 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "benchopt>=1.8",
+    "benchopt @ git+https://github.com/bmalezieux/benchopt.git@utils_parallel",
     "numpy",
-    "torch",
+    "torch<2.10",
     "torchvision",
     "matplotlib",
     "plotly",
     "pandas",
     "pyyaml",
-    "astropy",
     "scipy",
     "pillow",
     "requests",
     "submitit",
     "typing-extensions",
+    "astra-toolbox",
     "deepinv @ git+https://github.com/deepinv/deepinv.git@main",
     "simai-bench @ git+https://github.com/argonne-lcf/SimAI-Bench.git",
     "ray>=2.54.1",
@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 radio = [
     "python-casacore",
+    "astropy",
     "torchkbnufft",
 ]
 docs = [
@@ -42,6 +43,7 @@ docs = [
 test = [
     "black",
     "ruff",
+    "pytest",
 ]
 
 [project.scripts]

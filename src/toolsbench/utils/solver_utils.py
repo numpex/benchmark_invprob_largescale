@@ -5,33 +5,18 @@ initialization, normalization strategies, and training curve plotting,
 used by both single-GPU and distributed PnP solvers.
 """
 
-from pathlib import Path
 
 import torch
 import copy
+from deepinv.utils import TensorList
 
 
-def compute_step_size_from_operator(operator, ground_truth: torch.Tensor) -> float:
-    """Compute PnP step size as 1 / Lipschitz constant of the forward operator.
 
-    Parameters
-    ----------
-    operator : deepinv.physics.Physics
-        Physics operator (can be stacked or distributed).
-    ground_truth : torch.Tensor
-        Ground truth tensor used to create an example signal for norm computation.
-
-    Returns
-    -------
-    float
-        Step size = 1 / lipschitz_constant, or 1.0 if constant is non-positive.
-    """
-    with torch.no_grad():
-        x_example = torch.zeros_like(
-            ground_truth, device=ground_truth.device, dtype=ground_truth.dtype
-        )
-        lipschitz_constant = operator.compute_norm(x_example, local_only=False)
-        return 1.0 / lipschitz_constant if lipschitz_constant > 0 else 1.0
+def measurement_to_device(measurement, device: torch.device):
+    """Move measurements to device, handling Tensor, list, and TensorList."""
+    if isinstance(measurement, (list, TensorList)):
+        return TensorList([m.to(device) for m in measurement])
+    return measurement.to(device)
 
 
 def initialize_reconstruction(
@@ -112,198 +97,55 @@ def initialize_reconstruction(
         )
 
 
-def normalize_to_unit(x: torch.Tensor, eps: float = 1e-10):
-    """Normalize a tensor to [0, 1] using its current min/max.
+def build_solver_name(
+    name_prefix: str,
+    slurm_nodes: int,
+    slurm_ntasks_per_node: int,
+    torchrun_nproc_per_node: int,
+    distributed_mode: bool,
+) -> str:
+    """Build a unique solver run name with timestamp and parallelism suffix."""
+    import os
+    from datetime import datetime
 
-    Returns the normalized tensor together with the offset and scale so the
-    mapping can be inverted with :func:`denormalize_from_unit`.
-
-    Parameters
-    ----------
-    x : torch.Tensor
-        Input tensor (any shape).
-    eps : float, optional
-        Minimum scale to avoid division by zero. Default: 1e-10.
-
-    Returns
-    -------
-    x_01 : torch.Tensor
-        Tensor normalized to [0, 1].
-    norm_min : float
-        Minimum value used for normalization.
-    norm_scale : float
-        Scale = max - min (clamped to ``eps``).
-    """
-    norm_min = x.min().item()
-    norm_scale = max((x.max() - x.min()).item(), eps)
-    x_01 = (x - norm_min) / norm_scale
-    return x_01, norm_min, norm_scale
+    ts = datetime.now().strftime("_%Y%m%d_%H%M%S_")
+    if slurm_ntasks_per_node > 1:
+        name = name_prefix + ts + f"{slurm_nodes}n{slurm_ntasks_per_node}t"
+    elif torchrun_nproc_per_node > 1:
+        name = name_prefix + ts + f"torchrun_{torchrun_nproc_per_node}proc"
+    else:
+        name = name_prefix + ts + "_single"
+    if distributed_mode:
+        name = name + f"_rank{int(os.environ.get('RANK', 0))}"
+    return name
 
 
-def denormalize_from_unit(
-    x_01: torch.Tensor, norm_min: float, norm_scale: float
-) -> torch.Tensor:
-    """Inverse of :func:`normalize_to_unit`.
-
-    Maps a tensor from [0, 1] back to the original physical domain using
-    the offset and scale returned by :func:`normalize_to_unit`.
-
-    Parameters
-    ----------
-    x_01 : torch.Tensor
-        Tensor in [0, 1].
-    norm_min : float
-        Offset (minimum of original tensor).
-    norm_scale : float
-        Scale (max - min of original tensor).
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor in the original physical domain.
-    """
-    return x_01 * norm_scale + norm_min
+def get_device_from_context(ctx) -> torch.device:
+    """Return ctx.device if a distributed context is provided, otherwise auto-detect."""
+    if ctx is not None:
+        return ctx.device
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# ---------------------------------------------------------------------------
-# Visualisation helpers
-# ---------------------------------------------------------------------------
+def sync_and_barrier(device: torch.device, ctx) -> None:
+    """Synchronize CUDA ops and issue a distributed barrier when in distributed mode."""
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    if ctx is not None:
+        ctx.barrier()
 
 
-def _to_mid_slice(x):
-    """Return the central 2-D slice from the first sample of a 3-D or batched tensor."""
-    t = x.detach().float()
-    if t.ndim == 5:
-        t = t[0, 0]
-    elif t.ndim == 4:
-        t = t[0, 0]
-    if t.ndim == 3:
-        t = t[t.shape[0] // 2]
-    return t.cpu().numpy()
-
-
-def save_training_figure(
-    out_path,
-    x,
-    x_sparse,
-    x_hat,
-    psnr_db: float,
-    title: str,
-    x_init=None,
-    psnr_init_db=None,
-    psnr_sparse_db=None,
-) -> None:
-    """Save a central-slice comparison figure (GT | Sparse | Init | Pred).
-
-    Works for any 2-D or 3-D tensor: a single central slice is extracted and
-    displayed per panel.  Suitable for both natural-image (Urban100) and
-    volumetric (Walnut CT) training runs.
-
-    Parameters
-    ----------
-    out_path : str or Path
-        Destination file path (parent directories are created automatically).
-    x : Tensor
-        Ground-truth image/volume.
-    x_sparse : Tensor or None
-        Sparse/FBP warm-start reconstruction, or ``None`` to omit the panel.
-    x_hat : Tensor
-        Model prediction.
-    psnr_db : float
-        PSNR of *x_hat* vs *x* (shown in the panel title).
-    title : str
-        Figure suptitle (e.g. ``"epoch=5 step=12"``).
-    x_init : Tensor or None
-        Untrained-model prediction, or ``None`` to omit the panel.
-    psnr_init_db : float or None
-        PSNR of *x_init* (shown when provided).
-    psnr_sparse_db : float or None
-        PSNR of *x_sparse* (shown when provided).
-    """
-    try:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except Exception:
-        return
-
-    gt = _to_mid_slice(x)
-    pred = _to_mid_slice(x_hat)
-    sparse = _to_mid_slice(x_sparse) if x_sparse is not None else None
-    init_img = _to_mid_slice(x_init) if x_init is not None else None
-
-    sparse_label = (
-        f"Sparse ({psnr_sparse_db:.2f} dB)" if psnr_sparse_db is not None else "Sparse"
-    )
-    init_label = (
-        f"Untrained ({psnr_init_db:.2f} dB)"
-        if psnr_init_db is not None
-        else "Untrained"
-    )
-    panels = [("GT", gt)]
-    if sparse is not None:
-        panels.append((sparse_label, sparse))
-    if init_img is not None:
-        panels.append((init_label, init_img))
-    panels.append((f"Pred ({psnr_db:.2f} dB)", pred))
-
-    vmin, vmax = float(gt.min()), float(gt.max())
-    fig, axes = plt.subplots(1, len(panels), figsize=(4 * len(panels), 4))
-    if len(panels) == 1:
-        axes = [axes]
-    for ax, (name, img) in zip(axes, panels):
-        ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax)
-        ax.set_title(name)
-        ax.axis("off")
-    fig.suptitle(title)
-    fig.tight_layout()
-    out = Path(out_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=120)
-    plt.close(fig)
-
-
-def save_prediction_results(tensor, path) -> None:
-    """Save the first 3-D volume from a (possibly batched) tensor to a .pt file."""
-    import torch
-
-    t = tensor.detach().cpu()
-    if t.ndim == 5:
-        t = t[0]
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(t, p)
-
-
-def crop_psnr(x_hat, x, crop: int = 100):
-    """PSNR over the central crop of a 3-D volume, normalised by the crop's range.
-
-    Avoids cone-beam edge artefacts.  Both tensors must have shape (B, C, D, H, W).
-
-    Returns a scalar Tensor (dB).
-    """
-    import torch
-
-    c = slice(crop, -crop)
-    tgt = x[..., c, c, c]
-    pred = x_hat[..., c, c, c]
-    range_val = tgt.amax() - tgt.amin()
-    mse = torch.mean((tgt - pred) ** 2)
-    return 10.0 * torch.log10((range_val**2).clamp(min=1e-12) / mse.clamp(min=1e-12))
-
-
-def seed_everything(seed: int) -> None:
-    """Seed Python, NumPy and PyTorch RNGs for reproducibility."""
-    import random
-    import numpy as np
-    import torch
-
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+def distributed_callback_iter(cb, distributed_mode: bool, device: torch.device, ctx):
+    """Yield while the benchopt callback returns True, broadcasting the decision in distributed mode."""
+    while True:
+        keep_going = cb()
+        if distributed_mode and ctx is not None:
+            decision = torch.tensor([float(keep_going)], device=device)
+            ctx.broadcast(decision, src=0)
+            keep_going = bool(decision.item())
+        if not keep_going:
+            return
+        yield
 
 
 def setup_distributed_env() -> int:
@@ -340,3 +182,56 @@ def setup_distributed_env() -> int:
     except (ImportError, RuntimeError) as e:
         print(f"Running in non-distributed mode: {e}")
         return 1
+
+
+def profile_roofline(model, x, sigma, bytes_per_elem=4):
+    """FLOPs, memory traffic and arithmetic intensity of one forward pass.
+
+    Counts conv/linear FLOPs and the bytes touched by every leaf module
+    (inputs, outputs, weights) through forward hooks, so the numbers describe
+    the model workload itself, independent of how it is executed.
+    """
+    total_flops, total_bytes = [0], [0]
+
+    def hook(module, inp, out):
+        for t in inp:
+            if isinstance(t, torch.Tensor):
+                total_bytes[0] += t.numel() * bytes_per_elem
+        if isinstance(out, torch.Tensor):
+            total_bytes[0] += out.numel() * bytes_per_elem
+        weight = getattr(module, "weight", None)
+        if weight is not None:
+            total_bytes[0] += weight.numel() * bytes_per_elem
+
+        conv_types = (
+            torch.nn.Conv2d, torch.nn.Conv3d,
+            torch.nn.ConvTranspose2d, torch.nn.ConvTranspose3d,
+        )
+        if isinstance(module, conv_types) and isinstance(out, torch.Tensor):
+            weight = module.weight
+            out_spatial = out.numel() // (out.shape[0] * out.shape[1])
+            kernel_ops = int(torch.tensor(weight.shape[1:]).prod().item())
+            batch = inp[0].shape[0] if isinstance(inp[0], torch.Tensor) else 1
+            total_flops[0] += 2 * kernel_ops * weight.shape[0] * out_spatial * batch
+        elif isinstance(module, torch.nn.Linear) and isinstance(inp[0], torch.Tensor):
+            batch = int(torch.tensor(inp[0].shape[:-1]).prod().item())
+            total_flops[0] += 2 * module.in_features * module.out_features * batch
+
+    hooks = [
+        m.register_forward_hook(hook)
+        for m in model.modules()
+        if not list(m.children())
+    ]
+    try:
+        with torch.no_grad():
+            model(x, sigma=sigma)
+    finally:
+        for h in hooks:
+            h.remove()
+
+    flops, mem_bytes = total_flops[0], total_bytes[0]
+    return dict(
+        flops=flops,
+        mem_bytes=mem_bytes,
+        arith_intensity=flops / mem_bytes if mem_bytes > 0 else 0.0,
+    )
