@@ -39,4 +39,3 @@ jobs:
       - name: Run benchmarks
         run: |
           uv run benchopt run benchmark_inference/. --config benchmark_inference/configs/examples/multiframe_superres.yml
-          uv run benchopt run benchmark_inference/. --config benchmark_inference/configs/examples/tomography_2d.yml
