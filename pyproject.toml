@@ -35,7 +35,9 @@ radio = [
 ]
 docs = [
     "sphinx",
-    "sphinx-rtd-theme",
+    "pydata-sphinx-theme",
+    "sphinx-design",
+    "sphinx-copybutton",
     "sphinx-gallery",
 ]
 
