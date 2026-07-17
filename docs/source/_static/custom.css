@@ -1,13 +1,39 @@
-/* Increase content width to 80% for all pages */
-.wy-nav-content {
-    max-width: 80% !important;
+/* Project-level styling layered on top of PyData Sphinx Theme. */
+
+html[data-theme="light"] {
+    --pst-color-primary: #3157a4;
+    --pst-color-link: #3157a4;
 }
 
-/* Ensure it applies to all content sections */
-.rst-content {
-    max-width: none !important;
+html[data-theme="dark"] {
+    --pst-color-primary: #8fb4ff;
+    --pst-color-link: #8fb4ff;
 }
 
-.document {
-    max-width: none !important;
+/* Keep technical pages readable while leaving room for both sidebars. */
+.bd-page-width {
+    max-width: 1600px;
+}
+
+.bd-main .bd-content .bd-article-container {
+    max-width: 1100px;
+}
+
+.bd-article h1 {
+    font-weight: 700;
+    letter-spacing: -0.025em;
+}
+
+/* Give landing-page navigation cards a quiet interactive treatment. */
+.benchmark-card {
+    height: 100%;
+    border: 1px solid var(--pst-color-border);
+    transition: border-color 120ms ease, transform 120ms ease,
+        box-shadow 120ms ease;
+}
+
+.benchmark-card:hover {
+    border-color: var(--pst-color-primary);
+    box-shadow: 0 0.35rem 1rem rgb(0 0 0 / 10%);
+    transform: translateY(-2px);
 }

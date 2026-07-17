@@ -1,61 +1,113 @@
+Benchmarking Inverse Problems at Scale
+======================================
 
+How well does an inverse-problem method perform when the unknown is no longer a
+small test image, but a multi-megapixel image or a full 3D volume? This benchmark
+turns that question into reproducible experiments, from reconstruction quality
+to GPU memory, runtime, and distributed scaling.
 
-Benchmark on Inference for Large-Scale Inverse Problems
-========================================================
+Built with `BenchOpt <https://benchopt.github.io>`_ and
+`DeepInv <https://deepinv.github.io>`_, the suite provides a common framework for
+evaluating large-scale imaging pipelines on a single GPU, across multiple GPUs,
+and on multi-node SLURM clusters.
 
-Welcome to the Benchmark on Inference for Large-Scale Inverse Problems — a `BenchOpt <https://benchopt.github.io>`_ benchmark for large scale inverse problems resolution based on  `DeepInv <https://deepinv.github.io>`_.
-
-Overview
---------
-
-This benchmark evaluates reconstruction algorithms for large-scale inverse problems across multiple imaging modalities. 
-In inverse problems, we aim to recover the original signal :math:`x` from measurements :math:`y` following the model:
+Inverse problems recover an unknown signal :math:`x` from indirect and noisy
+measurements :math:`y`:
 
 .. math::
 
-   y = Ax + n
+   y = A x + n,
 
-where :math:`A` is the forward operator (e.g., blur, tomographic projection) and :math:`n` represents noise.
+where :math:`A` models the acquisition system and :math:`n` represents
+measurement noise. At scale, reconstruction quality is only part of the story:
+the forward operator, learned prior, memory footprint, and communication between
+devices can all become limiting factors. The benchmark measures these trade-offs
+under controlled, repeatable conditions.
 
-**Datasets**
+Imaging Problems and Datasets
+-----------------------------
 
-The benchmark includes three imaging scenarios:
+The suite covers complementary acquisition models and data regimes, with images
+and volumes ranging from roughly one million to one hundred million unknowns:
 
-- **Tomography (2D/3D):** Computed tomography reconstruction from multiple projection operators
-- **High-Resolution Color Images:** Image restoration from multiple anisotropic Gaussian blur operators
+- **Multi-frame super-resolution** reconstructs a high-resolution color image
+  from several blurred, downsampled, and noisy frames. Varying the image size and
+  number of frames stresses both the stacked forward model and the denoising
+  prior.
+- **2D tomography** reconstructs a slice from noisy parallel-beam projections.
+  The number of angles, detector samples, and operators can be varied to study
+  increasingly expensive projection and backprojection steps.
+- **3D tomography** reconstructs a volumetric walnut from cone-beam CT
+  measurements. This real-world geometry combines a large 3D unknown with a
+  demanding forward operator and memory footprint.
+- **Radio interferometry** recovers a sky image from sparse Fourier-domain
+  measurements generated from a configurable telescope observation. It exposes
+  the computational challenges of wide, high-dynamic-range astronomical images
+  and non-Cartesian sampling.
 
+Benchmark Inference
+-------------------
 
-These datasets are multi-operator problems: from a single ground truth, we observe different measurements (e.g., tomography uses different projection angles; natural images use different blur kernels). The goal is to recover the original image from these measurements. 
-The benchmark focuses on large scale images or volumes, of order of magnitude from 1 to 100 million pixels/voxels.
+The inference benchmark targets the **quality, speed, and memory cost of solving
+large inverse problems**. It evaluates plug-and-play reconstruction algorithms
+and standalone denoisers while varying image size, physics complexity,
+solver settings, and hardware resources.
 
-**Reconstruction Methods**
+Alongside PSNR or SSIM, it records per-step timings and GPU memory for the
+physics gradient and denoising stages. Its experiments are designed to answer
+questions such as:
 
-We leverage the `DeepInv <https://deepinv.github.io>`_ library to implement distributed resolution algorithms:
+- Does adding GPUs reduce reconstruction time for a fixed problem size?
+- Which stage limits performance: the forward model, the denoiser, or
+  communication?
+- What is the quality and performance impact of patching, overlap, or
+  compilation?
+- How large a reconstruction can a given GPU configuration process?
 
-- **Plug-and-Play (PnP):** Combines data-fidelity optimization with pretrained denoisers as image priors, offering flexibility and strong performance without task-specific training
+Benchmark Training
+------------------
 
+The training benchmark targets the **cost of optimizing unrolled reconstruction
+networks at large scale**. Each benchmark iteration monitors one supervised
+training step of an unrolled plug-and-play model.
 
-**Evaluation Conditions**
-
-The benchmark assesses solver performance under varying configurations:
-
-- **Image sizes:** Testing across different resolution scales
-- **Computational resources:** From single GPU to multi-GPU distributed setups
-
-Performance is measured through reconstruction quality (PSNR) and computational efficiency (runtime, memory usage).
+It focuses on the choices that determine whether training scales:
+strong and weak scaling across GPUs and nodes, communication overhead, patch
+batch size, and activation checkpointing. The resulting measurements show where
+additional hardware improves throughput, where communication dominates, and
+which memory-saving strategies enable larger images or volumes.
 
 .. toctree::
    :hidden:
    :maxdepth: 2
 
-   getting_started/index
-   examples/index
-   takeaways/index
+   getting_started/run_on_cluster
+   getting_started/config_guide
+   use_cases/index
 
-Quick Links
------------
+Explore the Benchmark
+---------------------
 
-- **Get Started:** See :doc:`getting_started/quickstart` for a quick setup guide.
-- **Examples:**  Explore :doc:`examples/index` for detailed, dataset-specific examples.
-- **Key Takeaways:** Check out :doc:`takeaways/index` for a summary of benchmark insights and best practices.
+.. grid:: 1 1 3 3
+   :gutter: 3
 
+   .. grid-item-card:: Run on a Cluster
+      :link: getting_started/run_on_cluster
+      :link-type: doc
+      :class-card: benchmark-card
+
+      Load the environment, configure SLURM, and launch an experiment.
+
+   .. grid-item-card:: Use Cases
+      :link: use_cases/index
+      :link-type: doc
+      :class-card: benchmark-card
+
+      Explore the data, inverse problems, preparation steps, and parameters.
+
+   .. grid-item-card:: Configuration Guide
+      :link: getting_started/config_guide
+      :link-type: doc
+      :class-card: benchmark-card
+
+      Build experiment grids for datasets, solvers, and distributed resources.
