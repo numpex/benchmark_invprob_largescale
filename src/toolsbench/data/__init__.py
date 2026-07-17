@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from toolsbench.data.base import DataConfig
 from toolsbench.data.deepinv_datasets import HighResColorImagingData, Tomography2D
@@ -16,7 +17,7 @@ __all__ = [
 ]
 
 
-def check_installed(name: str, path: str | Path) -> Path:
+def check_installed(name: str, path: str | Path, **download_kwargs: Any) -> Path:
     """Download the dataset *name* into *path* if not already present.
 
     Parameters
@@ -25,6 +26,8 @@ def check_installed(name: str, path: str | Path) -> Path:
         Name of the dataset to check / install.
     path : str or Path
         Local directory where the dataset should be stored.
+    **download_kwargs
+        Dataset-specific options forwarded to its :meth:`download` method.
 
     Returns
     -------
@@ -46,4 +49,4 @@ def check_installed(name: str, path: str | Path) -> Path:
             f"Known datasets: {sorted(dataset_classes)}."
         )
 
-    return dataset_classes[name]().download(path)
+    return dataset_classes[name]().download(path, **download_kwargs)

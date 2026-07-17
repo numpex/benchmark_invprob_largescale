@@ -3,7 +3,7 @@ objective:
 
 dataset:
   - tomography_2d:
-      image_size: 128
+      image_size: 256
       batch_size: 1
       num_operators: 1
       num_angles: 30
@@ -20,7 +20,7 @@ solver:
         ["gpu:1", 1, 1, false, false, 0, 0, 0],
       ]
 
-max-runs: 10
+max-runs: 2
 n-repetitions: 1
 plot: true
 html: true

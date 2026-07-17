@@ -28,8 +28,7 @@ class RadioSimulationCache:
     simulation_hash: str
     ms_path: Path
     metadata_path: Path
-    resized_fits_path: Path
-    source_fits_path: Path
+    fits_path: Path
 
     @property
     def is_complete(self) -> bool:
@@ -38,7 +37,6 @@ class RadioSimulationCache:
 
 @dataclass
 class _RadioInterferometryParams:
-    image_size: int = 256
     batch_size: int = 1
     fits_size: str = "1024"
     fits_name: str | None = None
@@ -88,21 +86,18 @@ def get_radio_simulation_cache(
         fits_size=radio_params.fits_size,
         fits_name=radio_params.fits_name,
     )
-    resized_fits_path, resized_img = _ensure_resized_fits(
-        source_fits_path=source_fits_path,
-        data_path=Path(data_path),
-        image_size=int(radio_params.image_size),
-    )
-
     from toolsbench.utils.radio_interferometry.radio_utils import (
         get_meerkat_visibilities_path,
+        load_fits_image,
     )
 
+    image = load_fits_image(source_fits_path, normalize=False)
+    image_size = int(image.shape[-1])
     ms_path = get_meerkat_visibilities_path(
-        resized_img,
+        image,
         get_meerkat_cache_dir(data_path),
-        resized_fits_path.name,
-        int(radio_params.image_size),
+        source_fits_path,
+        image_size,
         int(radio_params.number_of_time_steps),
         float(radio_params.start_frequency_hz),
         float(radio_params.end_frequency_hz),
@@ -118,8 +113,7 @@ def get_radio_simulation_cache(
         simulation_hash=ms_path.stem,
         ms_path=ms_path,
         metadata_path=ms_path.with_suffix(".meta.json"),
-        resized_fits_path=resized_fits_path,
-        source_fits_path=source_fits_path,
+        fits_path=source_fits_path,
     )
 
 
@@ -140,7 +134,7 @@ def run_simulation(
         )
         return cache
 
-    config = _simulation_config(data_path, radio_params, cache.source_fits_path)
+    config = _simulation_config(data_path, radio_params, cache.fits_path)
     if karabo_image_path is None:
         raise ValueError("karabo_image_path must be provided to run a radio simulation.")
     if host_workspace_path is None:
@@ -193,7 +187,15 @@ class RadioInterferometryInvProb(BaseInvProb):
             )
 
         metadata = _load_metadata(cache.metadata_path)
-        ground_truth = _load_ground_truth(cache.resized_fits_path, device)
+        ground_truth = _load_ground_truth(cache.fits_path, device)
+        image_size = int(ground_truth.shape[-1])
+        metadata_image_size = int(metadata["imaging_npixel"])
+        if metadata_image_size != image_size:
+            raise ValueError(
+                "Cached radio simulation image size does not match the source FITS: "
+                f"metadata={metadata_image_size}, FITS={image_size}. "
+                "Delete the stale cache entry and rerun dataset.prepare()."
+            )
 
         from deepinv.physics import GaussianNoise
         from toolsbench.utils.radio_interferometry.deepinv_imager import (
@@ -202,7 +204,7 @@ class RadioInterferometryInvProb(BaseInvProb):
         )
 
         imager_config = DirtyImagerConfig(
-            imaging_npixel=int(params.image_size),
+            imaging_npixel=image_size,
             imaging_cellsize=float(metadata["imaging_cellsize"]),
             combine_across_frequencies=False,
         )
@@ -246,35 +248,6 @@ def _coerce_params(
     return build_problem_params(_RadioInterferometryParams, params_dict)
 
 
-def _ensure_resized_fits(
-    source_fits_path: Path,
-    data_path: Path,
-    image_size: int,
-) -> tuple[Path, np.ndarray]:
-    from astropy.io import fits
-    from toolsbench.utils.radio_interferometry.radio_utils import (
-        load_and_resize_image,
-        load_new_header,
-    )
-
-    cache_dir = get_meerkat_cache_dir(data_path)
-    resized_fits_path = cache_dir / f"{source_fits_path.stem}_{image_size}.fits"
-    if resized_fits_path.exists():
-        with fits.open(resized_fits_path, memmap=False) as hdul:
-            resized_img = np.array(hdul[0].data, dtype=np.float32, copy=True)
-    else:
-        resized_img = load_and_resize_image(source_fits_path, image_size, normalize=False)
-        header = load_new_header(source_fits_path, image_size)
-        fits.PrimaryHDU(resized_img, header=header).writeto(
-            resized_fits_path,
-            overwrite=True,
-        )
-
-    if not resized_img.dtype.isnative:
-        resized_img = resized_img.byteswap().view(resized_img.dtype.newbyteorder("="))
-    return resized_fits_path, np.ascontiguousarray(resized_img, dtype=np.float32)
-
-
 def _simulation_config(
     data_path: str | Path,
     params: _RadioInterferometryParams,
@@ -288,7 +261,6 @@ def _simulation_config(
             "pos_ra": float(params.pos_ra),
             "pos_dec": float(params.pos_dec),
             "random_position": bool(params.random_position),
-            "image_size": [int(params.image_size)],
             "data_path": None,
             "use_gpus": bool(params.use_gpus),
             "number_of_time_steps": int(params.number_of_time_steps),
@@ -472,15 +444,10 @@ def _load_metadata(metadata_path: Path) -> dict[str, Any]:
 
 
 def _load_ground_truth(fits_path: Path, device: torch.device) -> torch.Tensor:
-    from astropy.io import fits
+    from toolsbench.utils.radio_interferometry.radio_utils import load_fits_image
 
-    with fits.open(fits_path, memmap=False) as hdul:
-        img_np = np.array(hdul[0].data, dtype=np.float32, copy=True)
-    if not img_np.dtype.isnative:
-        img_np = img_np.byteswap().view(img_np.dtype.newbyteorder("="))
+    img_np = load_fits_image(fits_path, normalize=False)
     img = torch.from_numpy(np.ascontiguousarray(img_np, dtype=np.float32))
-    if img.ndim == 2:
-        img = img.unsqueeze(0)
     if img.ndim == 3:
         img = img.unsqueeze(0)
     if img.ndim != 4:

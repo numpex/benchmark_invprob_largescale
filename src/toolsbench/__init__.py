@@ -1,5 +1,7 @@
 """toolsbench package."""
 
+from __future__ import annotations
+
 import builtins
 import sys
 import typing

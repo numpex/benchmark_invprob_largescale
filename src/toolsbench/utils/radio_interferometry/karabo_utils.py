@@ -172,7 +172,7 @@ def generate_meerkat_visibilities(
     vis_path = get_meerkat_visibilities_path(
         image,
         cache_dir,
-        os.path.basename(fits_file),
+        fits_file,
         imaging_npixel,
         number_of_time_steps,
         start_frequency_hz,

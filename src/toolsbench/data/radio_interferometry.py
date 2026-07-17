@@ -23,12 +23,33 @@ class RadioInterferometryData(HFData):
             "Use toolsbench.invprob.RadioInterferometryInvProb instead."
         )
 
-    def download(self, data_path: str | Path = Path("./data")) -> Path:
-        """Download all FITS images into *data_path* and return that directory."""
+    def download(
+        self,
+        data_path: str | Path = Path("./data"),
+        fits_size: str | None = None,
+    ) -> Path:
+        """Download the requested FITS image(s) and return their directory.
+
+        When *fits_size* is omitted, all available image sizes are downloaded
+        for backward compatibility.
+        """
         data_path = Path(data_path)
-        if all(len(list((data_path / size).glob("*.fits"))) == 1 for size in VALID_FITS_SIZES):
+        requested_sizes = VALID_FITS_SIZES if fits_size is None else (str(fits_size),)
+        invalid_sizes = set(requested_sizes).difference(VALID_FITS_SIZES)
+        if invalid_sizes:
+            raise ValueError(
+                f"Unknown radio FITS size(s) {sorted(invalid_sizes)}. "
+                f"Expected one of {list(VALID_FITS_SIZES)}."
+            )
+
+        if all(
+            len(list((data_path / size).glob("*.fits"))) == 1
+            for size in requested_sizes
+        ):
             return data_path
-        return self._download_hf_snapshot(data_path, allow_patterns="*.fits")
+
+        allow_patterns = [f"{size}/*.fits" for size in requested_sizes]
+        return self._download_hf_snapshot(data_path, allow_patterns=allow_patterns)
 
     @classmethod
     def select_fits_file(

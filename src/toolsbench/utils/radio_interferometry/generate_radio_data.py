@@ -1,21 +1,21 @@
 import sys
 import argparse
 from pathlib import Path
-from astropy.io import fits
 
-# Add src directory to sys.path to resolve toolsbench imports when run as script.
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+# Add the src directory to sys.path when this file is executed directly in the
+# Karabo container. parents[2] is ``src/toolsbench``; Python needs ``src`` in
+# order to resolve the top-level ``toolsbench`` package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from toolsbench.utils.radio_interferometry.karabo_utils import generate_meerkat_visibilities
 from toolsbench.utils.radio_interferometry.radio_utils import (
-    load_and_resize_image,
     load_config,
-    load_new_header,
+    load_fits_image,
 )
 
 
-def generate_data_for_size(cfg, image_size):
-    """Generate data for a specific image size."""
+def generate_data(cfg):
+    """Generate data at the FITS image's native spatial resolution."""
     data_path = cfg.data_path
     fits_name = cfg.fits_name
     pos_ra = float(cfg.pos_ra)
@@ -45,34 +45,22 @@ def generate_data_for_size(cfg, image_size):
             print(f"Could not find {fits_name} in {data_path} or {default_data_dir}")
             return
 
-    fits_stem = Path(fits_name).stem
-    resized_fits_path = ms_cache_dir / f"{fits_stem}_{image_size}.fits"
+    try:
+        image = load_fits_image(fits_file, normalize=False)
+    except Exception as e:
+        print(f"Could not load/process FITS image: {e}")
+        return
 
-    if resized_fits_path.exists():
-        print(f"Using cached resized image: {resized_fits_path}")
-        try:
-            resized_img = fits.getdata(resized_fits_path)
-        except Exception as e:
-            print(f"Could not load cached resized image {resized_fits_path}: {e}")
-            return
-    else:
-        try:
-            resized_img = load_and_resize_image(fits_file, image_size, normalize=False)
-        except Exception as e:
-            print(f"Could not load/process example image: {e}")
-            return
-
-        new_header = load_new_header(fits_file, image_size)
-        fits.PrimaryHDU(data=resized_img, header=new_header).writeto(
-            resized_fits_path, overwrite=True
-        )
-
-    print(f"Generating data for image size {image_size} with use_gpus={use_gpus}")
+    image_size = image.shape[-1]
+    print(
+        f"Generating data at native image size {image_size} "
+        f"with use_gpus={use_gpus}"
+    )
 
     # Generate visibilities
     vis_path = generate_meerkat_visibilities(
-        resized_fits_path,
-        resized_img,
+        fits_file,
+        image,
         ms_cache_dir,
         use_gpus=use_gpus,
         number_of_time_steps=number_of_time_steps,
@@ -86,14 +74,11 @@ def generate_data_for_size(cfg, image_size):
         pol_mode=pol_mode,
     )
 
-    print(f"Ground truth cached at: {resized_fits_path}")
-
     print(f"Visibilities ready for size {image_size}: {vis_path}")
 
 
 def main_generation_loop(cfg):
-    for size in cfg.image_size:
-        generate_data_for_size(cfg, size)
+    generate_data(cfg)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import yaml
 import json
@@ -14,20 +16,38 @@ from astropy.coordinates import (
 )
 from astropy.time import Time
 import astropy.units as u
-from scipy.ndimage import zoom
 
 MEERKAT_LOCATION = EarthLocation(
     lat=-30.83 * u.deg, lon=21.33 * u.deg, height=1195.0 * u.m
 )
 
 
-def load_and_resize_image(image_path, image_size, normalize=False):
-    """Load and resize a FITS image.
+def get_fits_image_size(image_path: str | Path) -> int:
+    """Return the native spatial size of a square FITS image."""
+    with fits.open(image_path, memmap=False) as hdul:
+        shape = tuple(size for size in hdul[0].shape if size != 1)
+
+    if len(shape) not in (2, 3):
+        raise ValueError(
+            f"Unexpected FITS image shape {shape}; expected two spatial dimensions "
+            "and, optionally, a channel dimension."
+        )
+    height, width = shape[-2:]
+    if height != width:
+        raise ValueError(
+            "Radio interferometry currently requires a square FITS image, got "
+            f"spatial shape {(height, width)} from {image_path}."
+        )
+    return int(height)
+
+
+def load_fits_image(image_path: str | Path, normalize: bool = False) -> np.ndarray:
+    """Load a FITS image without changing its native spatial resolution.
 
     Returns
     -------
     np.ndarray
-        The resized image of shape (C, H, W) in [0, 1].
+        A contiguous float32 image of shape ``(C, H, W)``.
     """
     with fits.open(image_path, memmap=False) as hdul:
         img = np.array(hdul[0].data, dtype=np.float32, copy=True)
@@ -49,31 +69,13 @@ def load_and_resize_image(image_path, image_size, normalize=False):
             f"Unexpected FITS image shape {img.shape}, expected 2D or 3D after squeeze."
         )
 
-    c, h, w = img.shape
-    resized_img = img.copy()
-
-    if h != image_size or w != image_size:
-        zoom_factors = (1, image_size / h, image_size / w)
-        resized_img = zoom(img, zoom_factors, order=3)
-        #resized_img = np.clip(resized_img, 0, 1)
-
-    return np.ascontiguousarray(resized_img, dtype=np.float32)
-
-
-def load_new_header(fits_file, image_size):
-    orig_header = fits.getheader(fits_file)
-    orig_naxis1 = int(orig_header.get("NAXIS1", image_size))
-    orig_naxis2 = int(orig_header.get("NAXIS2", image_size))
-    new_header = orig_header.copy()
-    # Scale pixel size: new pixel covers more angle (fewer pixels, same FOV)
-    if "CDELT1" in new_header:
-        new_header["CDELT1"] = float(orig_header["CDELT1"]) * orig_naxis1 / image_size
-    if "CDELT2" in new_header:
-        new_header["CDELT2"] = float(orig_header["CDELT2"]) * orig_naxis2 / image_size
-    # Move reference pixel to the centre of the new image
-    new_header["CRPIX1"] = (image_size + 1) / 2.0
-    new_header["CRPIX2"] = (image_size + 1) / 2.0
-    return new_header
+    image_size = get_fits_image_size(image_path)
+    if img.shape[-2:] != (image_size, image_size):
+        raise ValueError(
+            f"FITS data shape {img.shape} does not match its native spatial size "
+            f"{image_size}."
+        )
+    return np.ascontiguousarray(img, dtype=np.float32)
 
 
 '''def get_meerkat_visibilities_path(
@@ -110,7 +112,7 @@ def load_new_header(fits_file, image_size):
 def get_meerkat_visibilities_path(
     image: np.ndarray,
     cache_dir: Path,
-    fits_name: str,
+    fits_file: str | Path,
     imaging_npixel: int,
     number_of_time_steps: int = 256,
     start_frequency_hz: float = 100e6,
@@ -128,7 +130,7 @@ def get_meerkat_visibilities_path(
     """
     # Create a unique hash for the simulation parameters
     params = {
-        "fits_name": fits_name,
+        "fits_name": Path(fits_file).name,
         "number_of_time_steps": number_of_time_steps,
         "start_frequency_hz": start_frequency_hz,
         "end_frequency_hz": end_frequency_hz,
@@ -144,15 +146,18 @@ def get_meerkat_visibilities_path(
     params_str = str(sorted(params.items()))
     params_hash = hashlib.md5(params_str.encode()).hexdigest()
 
-    if hasattr(image, "cpu") and hasattr(image, "numpy"):
-        img_bytes = np.ascontiguousarray(
-            image.cpu().numpy(), dtype=np.float32
-        ).tobytes()
-    else:
-        img_bytes = np.ascontiguousarray(image, dtype=np.float32).tobytes()
-
-    img_hash = hashlib.md5(img_bytes).hexdigest()
-    full_hash = hashlib.md5((params_hash + img_hash).encode()).hexdigest()
+    # Hash the source FITS bytes rather than a decoded float32 array. Conversion
+    # from the FITS float64 data can round differently across NumPy versions,
+    # causing the Python 3.9 container and Python 3.12 host to disagree on the
+    # cache path. The file hash also captures WCS/header changes that affect the
+    # simulation but are absent from the decoded pixel array.
+    fits_hash = hashlib.md5()
+    with Path(fits_file).open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            fits_hash.update(chunk)
+    full_hash = hashlib.md5(
+        (params_hash + fits_hash.hexdigest()).encode()
+    ).hexdigest()
 
     vis_path = cache_dir / f"{full_hash}.ms"
     return vis_path
