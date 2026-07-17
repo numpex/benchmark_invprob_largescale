@@ -84,11 +84,12 @@ which memory-saving strategies enable larger images or volumes.
    getting_started/run_on_cluster
    getting_started/config_guide
    use_cases/index
+   solvers/index
 
 Explore the Benchmark
 ---------------------
 
-.. grid:: 1 1 3 3
+.. grid:: 1 2 2 4
    :gutter: 3
 
    .. grid-item-card:: Run on a Cluster
@@ -111,3 +112,10 @@ Explore the Benchmark
       :class-card: benchmark-card
 
       Build experiment grids for datasets, solvers, and distributed resources.
+
+   .. grid-item-card:: Solvers and Profiling
+      :link: solvers/index
+      :link-type: doc
+      :class-card: benchmark-card
+
+      Understand the algorithms, multi-GPU execution, parameters, and profilers.
