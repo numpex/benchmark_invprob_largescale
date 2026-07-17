@@ -119,7 +119,11 @@ class Dataset(BaseDataset):
 
     def prepare(self, env_name=None, **kwargs):
         data_path = Path(config.get_data_path(key="radio_interferometry"))
-        check_installed("radio_interferometry", data_path)
+        check_installed(
+            "radio_interferometry",
+            data_path,
+            fits_size=str(self.fits_size),
+        )
         cache = run_simulation(
             data_path,
             params=self._invprob_params(),
