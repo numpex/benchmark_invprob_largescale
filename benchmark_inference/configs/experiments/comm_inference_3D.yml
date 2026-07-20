@@ -1,0 +1,38 @@
+# Benchopt configuration for 3D tomography testing
+# This file specifies testing with Walnut CT dataset
+
+# Objective filter
+objective:
+  - reconstruction_objective:
+      save_output_figures: false
+      additional_metrics: false
+
+# Dataset filters (with parameters)
+dataset:
+  - simulated:
+      image_size: [[512,512,512]]
+      num_operators: 2
+      channels: 1
+
+
+
+# Solver filters (with parameters)
+solver:
+  - PnP:
+      denoiser: drunet
+      init_method: ["pseudo_inverse"]
+      profiler_mode: torch
+      slurm_gres, slurm_ntasks_per_node, slurm_nodes, distribute_physics, distribute_denoiser, patch_size, overlap, max_batch_size, denoiser_sigma, denoiser_lambda_relaxation: [
+        ["gpu:2", 2, 1,true, true, [8,256,256], [2,16,16], 4, 0.03, 40.0],
+        ["gpu:4", 4, 1, true, true, [8,256,256], [2,16,16], 4, 0.03, 40.0],
+        ["gpu:4", 4, 2, true, true, [8,256,256], [2,16,16], 4, 0.03, 40.0],
+        ["gpu:4", 4, 4, true, true, [8,256,256], [2,16,16], 4, 0.03, 40.0],
+        
+      ]
+
+
+# Run parameters
+max-runs: 6
+n-repetitions: 1
+plot: true
+html: true

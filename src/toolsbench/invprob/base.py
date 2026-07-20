@@ -2,7 +2,7 @@ import warnings
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping as MappingABC
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, TypeVar
 
@@ -38,6 +38,64 @@ class InvProb(MappingABC):
         if self.invprob_kwargs:
             data.update(self.invprob_kwargs)
         return data
+
+    def resized(self, image_size, *, device=None) -> "InvProb":
+        """Return this inverse problem restated at a different spatial size.
+
+        ``image_size`` accepts an int or ``[s]`` (square), ``[h, w]``, or
+        ``[d, h, w]``, matching the dataset's own convention. Batch and channels
+        are kept, so the physics must stay valid at the new size.
+
+        The physics operators are reset in place rather than copied -- they can
+        be large and stacked -- so the returned problem shares them with this
+        one, and this one should be considered spent.
+        """
+        # A single-element list is a wrapper, not a 1D size: the configs write
+        # [s] for a square and [[d, h, w]] for a volume.
+        while isinstance(image_size, (list, tuple)) and len(image_size) == 1:
+            image_size = image_size[0]
+        spatial = (
+            tuple(int(s) for s in image_size)
+            if isinstance(image_size, (list, tuple))
+            else (int(image_size),) * 2
+        )
+        shape = torch.Size((*self.ground_truth_shape[:2], *spatial))
+        if shape == self.ground_truth_shape:
+            return self
+
+        if self.ground_truth is not None:
+            device = device or self.ground_truth.device
+            ground_truth = torch.nn.functional.interpolate(
+                self.ground_truth.to(device),
+                size=spatial,
+                mode="trilinear" if len(spatial) == 3 else "bilinear",
+                align_corners=False,
+            )
+        else:
+            ground_truth = torch.rand(shape, device=device)
+
+        # Operators cache the size they were built for; clearing it makes them
+        # rebuild for the new shape. 
+        pending = [self.physics]
+        while pending:
+            operator = pending.pop()
+            children = getattr(operator, "local_physics", None) or getattr(
+                operator, "physics_list", None
+            )
+            if children:
+                pending.extend(children)
+            elif hasattr(operator, "imsize"):
+                operator.imsize = None
+
+        with torch.no_grad():
+            measurements = self.physics.A(ground_truth)
+
+        return replace(
+            self,
+            ground_truth=ground_truth,
+            ground_truth_shape=shape,
+            measurements=measurements,
+        )
 
     def __getitem__(self, key: str) -> Any:
         return self.asdict()[key]

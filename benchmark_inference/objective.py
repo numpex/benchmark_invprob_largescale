@@ -25,6 +25,7 @@ class Objective(BaseObjective):
 
     parameters = {
         "save_output_figures": [False],
+        "additional_metrics": [True],
     }
 
     # The three methods below define the links between the Dataset,
@@ -94,7 +95,7 @@ class Objective(BaseObjective):
             **self._extra_kwargs,
         )
 
-    def evaluate_result(self, reconstruction, name, **kwargs):
+    def evaluate_result(self, reconstruction, name, ground_truth=None, **kwargs):
         """Compute the objective value(s) given the output of a solver.
 
         Parameters
@@ -103,6 +104,10 @@ class Objective(BaseObjective):
             Reconstructed image from solver.
         name : str
             Name identifier for the solver/configuration.
+        ground_truth : torch.Tensor, optional
+            Reference to score against, when the solver works on a different shape
+            than the dataset (e.g. the Denoiser probe's solver-side image_size /
+            batch_size). Defaults to the dataset ground truth.
         **kwargs : dict
             Optional GPU and step metrics including:
             - gpu_memory_allocated_mb, gpu_memory_reserved_mb,
@@ -121,25 +126,28 @@ class Objective(BaseObjective):
             'psnr', and optional GPU/step metrics.
         """
         with torch.no_grad():
+            gt = ground_truth if ground_truth is not None else self.ground_truth
             # Ensure reconstruction is on the same device as ground truth
-            reconstruction = reconstruction.to(self.ground_truth.device)
+            reconstruction = reconstruction.to(gt.device)
             reconstruction = torch.clamp(
                 reconstruction, min=self.min_pixel, max=self.max_pixel
             )
-            ground_truth = torch.clamp(
-                self.ground_truth, min=self.min_pixel, max=self.max_pixel
-            )
+            ground_truth = torch.clamp(gt, min=self.min_pixel, max=self.max_pixel)
 
             psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
-            ssim_tensor = self.ssim_metric(reconstruction, ground_truth)
-            mse_tensor = self.mse_metric(reconstruction, ground_truth)
-
             # Handle batch case - take mean across batch dimension
             psnr = (
                 psnr_tensor.mean().item()
                 if psnr_tensor.numel() > 1
                 else psnr_tensor.item()
             )
+            extra = {key: value for key, value in kwargs.items() if value is not None}
+
+            if not self.additional_metrics:
+                return dict(value=-psnr, psnr=psnr, **extra)
+
+            ssim_tensor = self.ssim_metric(reconstruction, ground_truth)
+            mse_tensor = self.mse_metric(reconstruction, ground_truth)
             ssim = (
                 ssim_tensor.mean().item()
                 if ssim_tensor.numel() > 1
@@ -192,14 +200,9 @@ class Objective(BaseObjective):
             # fits.PrimaryHDU(reconstruction_np).writeto(fits_path, overwrite=True)
 
         # Return value (primary metric for stopping criterion) and additional metrics
-        result = dict(value=-asinh_psnr, psnr=psnr, ssim=ssim, mse=mse, asinh_psnr=asinh_psnr)
-
-        # Add all non-None metrics from kwargs to result
-        for key, value in kwargs.items():
-            if value is not None:
-                result[key] = value
-
-        return result
+        return dict(
+            value=-asinh_psnr, psnr=psnr, ssim=ssim, mse=mse, asinh_psnr=asinh_psnr, **extra
+        )
 
     def get_one_result(self):
         """Return one solution for which the objective can be evaluated.

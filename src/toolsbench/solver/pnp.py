@@ -50,7 +50,11 @@ class PnPSolver:
         init_method="pseudo_inverse",
         norm_strategy="clip",
         compile=None,
+        image_size=None,
     ):
+        if image_size is not None:
+            problem = problem.resized(image_size, device=device)
+        self.shape = tuple(problem.ground_truth_shape)
         self.problem = problem
         self.device = device
         self.profiler = profiler
@@ -72,8 +76,6 @@ class PnPSolver:
         self.reconstruction = None
 
     def run(self, cb):
-        measurement = measurement_to_device(self.problem.measurements, self.device)
-
         if self.ctx is not None and self.distribute_physics:
             physics = distribute(
                 self.problem.physics,
@@ -90,6 +92,8 @@ class PnPSolver:
             physics = self.problem.physics
             if hasattr(physics, "to"):
                 physics = physics.to(self.device)
+
+        measurement = measurement_to_device(self.problem.measurements, self.device)
 
         prior, data_fidelity = self._setup_components()
         print("Components set up.")
@@ -127,7 +131,7 @@ class PnPSolver:
     def _setup_components(self):
         if self.denoiser == "drunet":
             denoiser = create_drunet_denoiser(
-                self.problem.ground_truth_shape, self.device, torch.float32
+                self.shape, self.device, torch.float32
             )
         else:
             raise ValueError(f"Unknown denoiser: {self.denoiser}")
@@ -142,7 +146,7 @@ class PnPSolver:
                 patch_size=self.patch_size,
                 overlap=self.overlap,
                 tiling_dims=(
-                    (-3, -2, -1) if len(self.problem.ground_truth_shape) == 5 else (-2, -1)
+                    (-3, -2, -1) if len(self.shape) == 5 else (-2, -1)
                 ),
                 max_batch_size=self.max_batch_size,
                 type_object="denoiser",
@@ -165,13 +169,13 @@ class PnPSolver:
     def _compute_step_size(self, physics):
         if isinstance(self.step_size, float):
             return self.step_size
-        x_example = torch.zeros(self.problem.ground_truth_shape, device=self.device)
+        x_example = torch.zeros(self.shape, device=self.device)
         return compute_step_size_from_operator(physics, x_example) * self.step_size_scale
 
     def _initialize_reconstruction(self, physics, measurement):
         with torch.no_grad():
             return initialize_reconstruction(
-                signal_shape=self.problem.ground_truth_shape,
+                signal_shape=self.shape,
                 operator=physics,
                 measurements=measurement,
                 device=self.device,
@@ -256,6 +260,10 @@ class PnPSolver:
 
     def get_result(self):
         result = dict(reconstruction=self.reconstruction)
+        # A resized problem carries its own ground truth; the objective scores
+        # against that rather than the dataset's, whose shape no longer matches.
+        if self.problem.ground_truth is not None:
+            result["ground_truth"] = self.problem.ground_truth
         if self.profiler is not None:
             result.update(self.profiler.get_current_metrics())
         return result

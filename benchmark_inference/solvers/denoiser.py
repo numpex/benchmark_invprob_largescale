@@ -30,6 +30,8 @@ class Solver(BaseSolver):
         "overlap": [32],
         "max_batch_size": [0],
         "roofline": [True],
+        # --- Probe shape (solver-side, None means use the dataset's) ---
+        "image_size": [None],
         "slurm_nodes": [1],
         "slurm_ntasks_per_node": [1],
         "slurm_gres": ["gpu:1"],
@@ -114,6 +116,7 @@ class Solver(BaseSolver):
                 overlap=self.overlap,
                 max_batch_size=self.max_batch_size,
                 roofline=self.roofline,
+                image_size=self.image_size,
             )
             self._algo.run(cb)
         profiler.finalize(ctx)
