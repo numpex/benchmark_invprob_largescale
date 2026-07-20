@@ -75,8 +75,6 @@ class Solver(BaseSolver):
             min_pixel=min_pixel,
             max_pixel=max_pixel,
         )
-        if self.image_size is not None:
-            self.problem = self.problem.resized(self.image_size)
         self.ctx = None
         self._algo = None
         self.world_size = setup_distributed_env()
@@ -125,6 +123,7 @@ class Solver(BaseSolver):
                 max_batch_size=self.max_batch_size,
                 checkpoint_batches=self.checkpoint_batches,
                 deterministic=self.deterministic,
+                image_size=self.image_size,
             )
             self._algo.run(cb)
         profiler.finalize(ctx)
@@ -132,7 +131,7 @@ class Solver(BaseSolver):
     def get_result(self):
         if self._algo is None:
             return {"reconstruction": None}
-        result = dict(name=self.name, ground_truth=self.problem.ground_truth)
+        result = dict(name=self.name)
         result.update(self._algo.get_result())
         return result
 

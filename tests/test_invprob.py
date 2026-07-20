@@ -1,11 +1,12 @@
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import patch, MagicMock
 
 import pytest
 import torch
 import numpy as np
 from astropy.io import fits
 
-from toolsbench.invprob.base import InvProbConfig
+from toolsbench.invprob.base import InvProb, InvProbConfig
 from toolsbench.invprob.denoising import DenoisingInvProb
 from toolsbench.invprob.multiframe_superres import MultiFrameSuperResInvProb
 from toolsbench.invprob.tomography import TomographyInvProb
@@ -207,3 +208,43 @@ class TestDenoisingInvProb:
         ip = DenoisingInvProb().get_invprob(self._cfg((16, 16)))
         assert tuple(ip.ground_truth.shape) == (1, 3, 16, 16)
         assert ip.num_operators == 1
+
+
+class TestInvProbResized:
+    def _problem(self, shape, ground_truth=None):
+        physics = MagicMock()
+        physics.A.return_value = torch.zeros(shape)
+        return InvProb(
+            measurements=torch.zeros(shape),
+            physics=physics,
+            ground_truth_shape=torch.Size(shape),
+            ground_truth=ground_truth,
+        )
+
+    def test_same_size_is_noop(self):
+        ip = self._problem((1, 1, 8, 8))
+        assert ip.resized([8, 8]) is ip
+
+    def test_resizes_ground_truth_and_recomputes_measurements(self):
+        gt = torch.rand(1, 1, 8, 8)
+        ip = self._problem((1, 1, 8, 8), ground_truth=gt)
+        out = ip.resized([16, 16])
+        assert out.ground_truth_shape == torch.Size((1, 1, 16, 16))
+        assert out.ground_truth.shape == (1, 1, 16, 16)
+        ip.physics.A.assert_called_once()
+
+    def test_no_ground_truth_falls_back_to_random(self):
+        ip = self._problem((1, 1, 8, 8))
+        out = ip.resized([16, 16], device=torch.device("cpu"))
+        assert out.ground_truth.shape == (1, 1, 16, 16)
+
+    def test_resets_imsize_flat_and_nested(self):
+        class Leaf:
+            imsize = (8, 8)
+
+        leaf = Leaf()
+        parent = SimpleNamespace(local_physics=[leaf], A=lambda x: torch.zeros_like(x))
+        ip = self._problem((1, 1, 8, 8))
+        ip.physics = parent
+        ip.resized([16, 16], device=torch.device("cpu"))
+        assert leaf.imsize is None
