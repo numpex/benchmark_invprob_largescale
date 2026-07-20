@@ -46,6 +46,7 @@ def _make_unrolled_solver(**kwargs):
         overlap=32,
         max_batch_size=1,
         checkpoint_batches="auto",
+        image_size=None,
     )
     defaults.update(kwargs)
     return UnrolledPnPSolver(**defaults)
@@ -80,6 +81,7 @@ def _make_solver(**attrs):
         init_method="pseudo_inverse",
         compile=None,
         reconstruction=torch.zeros(1, 1, 8, 8),
+        shape=(1, 1, 8, 8),
     )
     defaults.update(attrs)
     for k, v in defaults.items():
@@ -221,6 +223,37 @@ class TestPnPSolverGetResult:
 
 
 # ---------------------------------------------------------------------------
+# PnPSolver / DenoiserSolver image_size wiring
+# ---------------------------------------------------------------------------
+
+class TestSolverImageSizeResize:
+
+    def test_pnp_resizes_with_device(self):
+        sentinel = _make_objective()
+        problem = MagicMock()
+        problem.resized.return_value = sentinel
+        device = torch.device("cpu")
+        solver = PnPSolver(
+            problem=problem, device=device, profiler=NullProfiler(),
+            ctx=None, distributed_mode=False, image_size=[16, 16],
+        )
+        problem.resized.assert_called_once_with([16, 16], device=device)
+        assert solver.problem is sentinel
+
+    def test_denoiser_resizes_with_device(self):
+        sentinel = _make_objective()
+        problem = MagicMock()
+        problem.resized.return_value = sentinel
+        device = torch.device("cpu")
+        solver = DenoiserSolver(
+            problem=problem, device=device, profiler=NullProfiler(),
+            ctx=None, distributed_mode=False, image_size=[16, 16],
+        )
+        problem.resized.assert_called_once_with([16, 16], device=device)
+        assert solver.problem is sentinel
+
+
+# ---------------------------------------------------------------------------
 # UnrolledPnPSolver._setup_components / _setup_optimizer
 # ---------------------------------------------------------------------------
 
@@ -274,6 +307,21 @@ class TestUnrolledPnPSolverGetResult:
         assert result["total_time_sec"] == 0.5
         assert result["max_gpu_mb"] == 100.0
 
+    def test_includes_ground_truth(self):
+        solver = _make_unrolled_solver()
+        solver.reconstruction = torch.ones(1, 1, 4, 4)
+        solver.profiler = NullProfiler()
+        result = solver.get_result()
+        assert torch.equal(result["ground_truth"], solver.problem.ground_truth)
+
+    def test_image_size_resizes_with_device(self):
+        sentinel = _make_objective()
+        problem = MagicMock()
+        problem.resized.return_value = sentinel
+        solver = _make_unrolled_solver(problem=problem, image_size=[16, 16])
+        problem.resized.assert_called_once_with([16, 16], device=solver.device)
+        assert solver.problem is sentinel
+
 
 # ---------------------------------------------------------------------------
 # DenoiserSolver
@@ -296,6 +344,7 @@ class TestDenoiserSolver:
     def test_get_result_includes_roofline_and_profiler(self):
         solver = DenoiserSolver.__new__(DenoiserSolver)
         solver.reconstruction = torch.ones(1, 1, 4, 4)
+        solver.reference = torch.zeros(1, 1, 4, 4)
         solver.roofline_metrics = {"flops": 100, "mem_bytes": 10, "arith_intensity": 10.0}
         solver.profiler = MagicMock()
         solver.profiler.get_current_metrics.return_value = {"denoise_time_sec": 0.5}

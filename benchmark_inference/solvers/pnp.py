@@ -21,6 +21,7 @@ class Solver(BaseSolver):
 
     parameters = {
         "denoiser": ["drunet"],
+        "image_size": [None],
         "patch_size": [128],
         "overlap": [32],
         "max_batch_size": [0],
@@ -69,7 +70,7 @@ class Solver(BaseSolver):
         self.ctx = None
         self._algo = None
         self.world_size = setup_distributed_env()
-        self.distributed_mode = self.world_size > 1
+        self.distributed_mode = self.distribute_denoiser or self.distribute_physics
         self.run_name = build_solver_name(
             self.name_prefix,
             self.slurm_nodes,
@@ -116,6 +117,7 @@ class Solver(BaseSolver):
                 init_method=self.init_method,
                 norm_strategy=self.norm_strategy,
                 compile=self.compile,
+                image_size=self.image_size,
             )
             self._algo.run(cb)
         profiler.finalize(ctx)

@@ -111,7 +111,10 @@ class UnrolledPnPSolver:
         max_batch_size=1,
         checkpoint_batches="auto",
         deterministic=True,
+        image_size=None,
     ):
+        if image_size is not None:
+            problem = problem.resized(image_size, device=device)
         self.problem = problem
         self.device = device
         self.profiler = profiler
@@ -268,7 +271,7 @@ class UnrolledPnPSolver:
         )
 
     def get_result(self):
-        result = dict(reconstruction=self.reconstruction)
+        result = dict(reconstruction=self.reconstruction, ground_truth=self.problem.ground_truth)
         if self.profiler is not None:
             result.update(self.profiler.get_current_metrics())
         return result
