@@ -80,10 +80,7 @@ def _make_solver(**attrs):
         init_method="pseudo_inverse",
         compile=None,
         reconstruction=torch.zeros(1, 1, 8, 8),
-        # Solver-side shape override; None/unoverridden mirrors __init__ defaults.
         shape=(1, 1, 8, 8),
-        shape_overridden=False,
-        reference=None,
     )
     defaults.update(attrs)
     for k, v in defaults.items():

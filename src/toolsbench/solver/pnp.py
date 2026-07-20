@@ -50,11 +50,11 @@ class PnPSolver:
         init_method="pseudo_inverse",
         norm_strategy="clip",
         compile=None,
-        shape=None,
+        image_size=None,
     ):
-        self.shape = tuple(shape) if shape is not None else tuple(problem.ground_truth_shape)
-        self.shape_overridden = tuple(self.shape) != tuple(problem.ground_truth_shape)
-        self.reference = None
+        if image_size is not None:
+            problem = problem.resized(image_size, device=device)
+        self.shape = tuple(problem.ground_truth_shape)
         self.problem = problem
         self.device = device
         self.profiler = profiler
@@ -92,21 +92,6 @@ class PnPSolver:
             physics = self.problem.physics
             if hasattr(physics, "to"):
                 physics = physics.to(self.device)
-
-        if self.shape_overridden:
-            local_ops = (
-                list(physics.local_physics) if hasattr(physics, "local_physics")
-                else list(physics.physics_list) if hasattr(physics, "physics_list")
-                else [physics]
-            )
-            for op in local_ops:
-                subs = op.physics_list if hasattr(op, "physics_list") else [op]
-                for sub in subs:
-                    if hasattr(sub, "imsize"):
-                        sub.imsize = None
-            self.reference = torch.rand(self.shape, device=self.device)
-            with torch.no_grad():
-                self.problem.measurements = physics.A(self.reference)
 
         measurement = measurement_to_device(self.problem.measurements, self.device)
 
@@ -275,8 +260,10 @@ class PnPSolver:
 
     def get_result(self):
         result = dict(reconstruction=self.reconstruction)
-        if self.reference is not None:
-            result["ground_truth"] = self.reference
+        # A resized problem carries its own ground truth; the objective scores
+        # against that rather than the dataset's, whose shape no longer matches.
+        if self.problem.ground_truth is not None:
+            result["ground_truth"] = self.problem.ground_truth
         if self.profiler is not None:
             result.update(self.profiler.get_current_metrics())
         return result

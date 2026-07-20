@@ -67,19 +67,10 @@ class Solver(BaseSolver):
             max_pixel=max_pixel,
             invprob_kwargs={"weights": weights} if weights is not None else None,
         )
-        shape = list(ground_truth_shape)
-        if self.image_size is not None:
-            size = (
-                [int(self.image_size)]
-                if isinstance(self.image_size, int)
-                else [int(s) for s in self.image_size]
-            )
-            shape[2:] = size * 2 if len(size) == 1 else size
-        self.probe_shape = tuple(shape)
         self.ctx = None
         self._algo = None
         self.world_size = setup_distributed_env()
-        self.distributed_mode = self.world_size > 1
+        self.distributed_mode = self.distribute_denoiser or self.distribute_physics
         self.run_name = build_solver_name(
             self.name_prefix,
             self.slurm_nodes,
@@ -90,7 +81,7 @@ class Solver(BaseSolver):
         self.name = re.sub(r"_rank\d+$", "", re.sub(r"_\d{8}_\d{6}_", "_", self.run_name))
 
     def run(self, cb):
-        if self.distributed_mode or self.distribute_denoiser or self.distribute_physics:
+        if self.distributed_mode:
             with DistributedContext(seed=42, cleanup=True) as ctx:
                 self.ctx = ctx
                 self._run_with_context(cb, ctx)
@@ -126,7 +117,7 @@ class Solver(BaseSolver):
                 init_method=self.init_method,
                 norm_strategy=self.norm_strategy,
                 compile=self.compile,
-                shape=self.probe_shape,
+                image_size=self.image_size,
             )
             self._algo.run(cb)
         profiler.finalize(ctx)

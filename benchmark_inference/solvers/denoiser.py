@@ -32,7 +32,6 @@ class Solver(BaseSolver):
         "roofline": [True],
         # --- Probe shape (solver-side, None means use the dataset's) ---
         "image_size": [None],
-        "batch_size": [None],
         "slurm_nodes": [1],
         "slurm_ntasks_per_node": [1],
         "slurm_gres": ["gpu:1"],
@@ -70,7 +69,6 @@ class Solver(BaseSolver):
             max_pixel=max_pixel,
             invprob_kwargs={"weights": weights} if weights is not None else None,
         )
-        self.probe_shape = self._probe_shape(ground_truth_shape)
         self.ctx = None
         self._algo = None
         self.world_size = setup_distributed_env()
@@ -83,25 +81,6 @@ class Solver(BaseSolver):
             self.distributed_mode,
         )
         self.name = re.sub(r"_rank\d+$", "", re.sub(r"_\d{8}_\d{6}_", "_", self.run_name))
-
-    def _probe_shape(self, ground_truth_shape):
-        """Dataset shape with the solver-side batch/image overrides applied.
-
-        ``image_size`` accepts an int or [s] (square), [h, w], or [d, h, w] --
-        matching the dataset's own convention, where a 3-element size means a 3D
-        volume and promotes the tensor to 5D.
-        """
-        shape = list(ground_truth_shape)
-        if self.batch_size is not None:
-            shape[0] = int(self.batch_size)
-        if self.image_size is not None:
-            size = (
-                [int(self.image_size)]
-                if isinstance(self.image_size, int)
-                else [int(s) for s in self.image_size]
-            )
-            shape[2:] = size * 2 if len(size) == 1 else size
-        return tuple(shape)
 
     def run(self, cb):
         # distribute() tiles the denoiser even on a single rank, so a context is
@@ -137,7 +116,7 @@ class Solver(BaseSolver):
                 overlap=self.overlap,
                 max_batch_size=self.max_batch_size,
                 roofline=self.roofline,
-                shape=self.probe_shape,
+                image_size=self.image_size,
             )
             self._algo.run(cb)
         profiler.finalize(ctx)

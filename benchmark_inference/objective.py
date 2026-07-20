@@ -134,29 +134,20 @@ class Objective(BaseObjective):
             )
             ground_truth = torch.clamp(gt, min=self.min_pixel, max=self.max_pixel)
 
-            if not self.additional_metrics:
-                psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
-                psnr = (
-                    psnr_tensor.mean().item()
-                    if psnr_tensor.numel() > 1
-                    else psnr_tensor.item()
-                )
-                result = dict(value=-psnr, psnr=psnr)
-                for key, value in kwargs.items():
-                    if value is not None:
-                        result[key] = value
-                return result
-
             psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
-            ssim_tensor = self.ssim_metric(reconstruction, ground_truth)
-            mse_tensor = self.mse_metric(reconstruction, ground_truth)
-
             # Handle batch case - take mean across batch dimension
             psnr = (
                 psnr_tensor.mean().item()
                 if psnr_tensor.numel() > 1
                 else psnr_tensor.item()
             )
+            extra = {key: value for key, value in kwargs.items() if value is not None}
+
+            if not self.additional_metrics:
+                return dict(value=-psnr, psnr=psnr, **extra)
+
+            ssim_tensor = self.ssim_metric(reconstruction, ground_truth)
+            mse_tensor = self.mse_metric(reconstruction, ground_truth)
             ssim = (
                 ssim_tensor.mean().item()
                 if ssim_tensor.numel() > 1
@@ -209,14 +200,9 @@ class Objective(BaseObjective):
             # fits.PrimaryHDU(reconstruction_np).writeto(fits_path, overwrite=True)
 
         # Return value (primary metric for stopping criterion) and additional metrics
-        result = dict(value=-asinh_psnr, psnr=psnr, ssim=ssim, mse=mse, asinh_psnr=asinh_psnr)
-
-        # Add all non-None metrics from kwargs to result
-        for key, value in kwargs.items():
-            if value is not None:
-                result[key] = value
-
-        return result
+        return dict(
+            value=-asinh_psnr, psnr=psnr, ssim=ssim, mse=mse, asinh_psnr=asinh_psnr, **extra
+        )
 
     def get_one_result(self):
         """Return one solution for which the objective can be evaluated.

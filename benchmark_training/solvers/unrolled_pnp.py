@@ -1,6 +1,3 @@
-import torch
-import torch.nn.functional as F
-
 from benchopt import BaseSolver
 from benchopt.stopping_criterion import NoCriterion
 from deepinv.distributed import DistributedContext
@@ -69,21 +66,6 @@ class Solver(BaseSolver):
         max_pixel=1.0,
         **kwargs,
     ):
-        dataset_image_size = ground_truth.shape[-1]
-        if self.image_size is not None and self.image_size != dataset_image_size:
-            ground_truth = F.interpolate(
-                ground_truth,
-                size=(self.image_size, self.image_size),
-                mode="bilinear",
-                align_corners=False,
-            )
-            for frame_physics in physics.physics_list:
-                subs = frame_physics.physics_list if hasattr(frame_physics, "physics_list") else [frame_physics]
-                for sub in subs:
-                    if hasattr(sub, "imsize"):
-                        sub.imsize = None
-            with torch.no_grad():
-                measurements = physics(ground_truth)
         self.problem = InvProb(
             ground_truth=ground_truth,
             measurements=measurements,
@@ -93,6 +75,8 @@ class Solver(BaseSolver):
             min_pixel=min_pixel,
             max_pixel=max_pixel,
         )
+        if self.image_size is not None:
+            self.problem = self.problem.resized(self.image_size)
         self.ctx = None
         self._algo = None
         self.world_size = setup_distributed_env()

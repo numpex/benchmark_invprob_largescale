@@ -23,9 +23,8 @@ class DenoiserSolver:
     - ``"post"``: compile the distributed wrapper (requires
       ``distribute_denoiser=True``; ``distribute`` also tiles on a single GPU).
 
-    ``shape`` overrides the tensor shape to denoise; ``None`` uses the dataset's
-    ground-truth shape. Since the probe only denoises random noise and never uses
-    the physics or measurements, the shape is free to differ from the dataset's.
+    ``image_size`` restates the problem at a different spatial size before
+    timing; ``None`` keeps the dataset's own size.
     """
 
     def __init__(
@@ -44,7 +43,7 @@ class DenoiserSolver:
         overlap=32,
         max_batch_size=0,
         roofline=True,
-        shape=None,
+        image_size=None,
     ):
         if compile == "post" and not distribute_denoiser:
             raise ValueError(
@@ -65,16 +64,22 @@ class DenoiserSolver:
         self.overlap = overlap
         self.max_batch_size = max_batch_size
         self.roofline = roofline
-        self.shape = (
-            tuple(shape) if shape is not None else tuple(problem.ground_truth_shape)
-        )
+        if image_size is not None:
+            self.problem = problem.resized(image_size, device=device)
+        self.shape = tuple(self.problem.ground_truth_shape)
         self.reconstruction = None
         self.reference = None
         self.roofline_metrics = {}
 
     def run(self, cb):
 
-        self.reconstruction = torch.rand(self.shape, device=self.device)
+
+        noisy = next(iter(self.problem.measurements))
+        self.reconstruction = (
+            noisy.to(self.device).clone()
+            if noisy.shape == self.shape
+            else torch.rand(self.shape, device=self.device)
+        )
         self.reference = self.reconstruction.clone()
         print(f"Reconstruction initialized with shape {tuple(self.shape)}.")
 
