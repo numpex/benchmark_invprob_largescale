@@ -2,11 +2,71 @@ from unittest.mock import patch
 
 import pytest
 import torch
+import numpy as np
+from astropy.io import fits
 
 from toolsbench.invprob.base import InvProbConfig
 from toolsbench.invprob.denoising import DenoisingInvProb
 from toolsbench.invprob.multiframe_superres import MultiFrameSuperResInvProb
 from toolsbench.invprob.tomography import TomographyInvProb
+from toolsbench.utils.radio_interferometry.radio_utils import (
+    get_fits_image_size,
+    get_meerkat_visibilities_path,
+    load_fits_image,
+)
+
+
+class TestRadioFitsLoading:
+    def test_preserves_native_size_and_adapts_to_channels_first(self, tmp_path):
+        fits_path = tmp_path / "native.fits"
+        data = np.arange(35, dtype=np.float32).reshape(1, 5, 7)
+        fits.PrimaryHDU(data).writeto(fits_path)
+
+        with pytest.raises(ValueError, match="requires a square FITS image"):
+            get_fits_image_size(fits_path)
+
+        square_data = np.arange(25, dtype=np.float32).reshape(1, 5, 5)
+        fits.PrimaryHDU(square_data).writeto(fits_path, overwrite=True)
+
+        image = load_fits_image(fits_path)
+
+        assert get_fits_image_size(fits_path) == 5
+        assert image.shape == (1, 5, 5)
+        assert image.dtype == np.float32
+        np.testing.assert_array_equal(image[0], square_data[0])
+
+    def test_sanitizes_non_finite_values_without_resizing(self, tmp_path):
+        fits_path = tmp_path / "non_finite.fits"
+        data = np.array([[np.nan, np.inf], [-np.inf, 3.0]], dtype=np.float32)
+        fits.PrimaryHDU(data).writeto(fits_path)
+
+        image = load_fits_image(fits_path)
+
+        assert image.shape == (1, 2, 2)
+        np.testing.assert_array_equal(
+            image,
+            np.array([[[0.0, 0.0], [0.0, 3.0]]], dtype=np.float32),
+        )
+
+    def test_cache_key_uses_source_fits_bytes(self, tmp_path):
+        fits_path = tmp_path / "source.fits"
+        image = np.arange(4, dtype=np.float32).reshape(1, 2, 2)
+        fits.PrimaryHDU(image).writeto(fits_path)
+
+        cache_path = get_meerkat_visibilities_path(
+            image, tmp_path, fits_path, imaging_npixel=2
+        )
+        differently_decoded = image.astype(np.float64) + 1.0
+        same_source_path = get_meerkat_visibilities_path(
+            differently_decoded, tmp_path, fits_path, imaging_npixel=2
+        )
+        assert same_source_path == cache_path
+
+        fits.PrimaryHDU(image + 1.0).writeto(fits_path, overwrite=True)
+        changed_source_path = get_meerkat_visibilities_path(
+            image, tmp_path, fits_path, imaging_npixel=2
+        )
+        assert changed_source_path != cache_path
 
 
 class DummyAstraPhysics:

@@ -26,7 +26,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install project
-        run: uv sync --group test
+        run: uv sync --all-groups --all-extras
 
       - name: Tests
         run: uv run pytest
+
+      - name: Prepare benchmarks
+        run: |
+          uv run benchopt prepare benchmark_inference/. --config benchmark_inference/configs/examples/multiframe_superres.yml
+          uv run benchopt prepare benchmark_inference/. --config benchmark_inference/configs/examples/tomography_2d.yml
+
+      - name: Run benchmarks
+        run: |
+          uv run benchopt run benchmark_inference/. --config benchmark_inference/configs/examples/multiframe_superres.yml

@@ -3,7 +3,6 @@ objective:
 
 dataset:
   - radio_interferometry:
-      image_size: 256
       fits_size: "1024"
       noise_level: 0.1
       seed: 42
@@ -43,4 +42,10 @@ solver:
       init_method: adjoint
       norm_strategy: dynamic
       slurm_gres, slurm_ntasks_per_node, distribute_physics, distribute_denoiser, patch_size, denoiser_sigma:
-        - ["gpu:0", 4, true, true, [128], 0.001]
+        - ["gpu:1", 1, false, false, 0, 0.001]
+
+
+max-runs: 10
+n-repetitions: 1
+plot: true
+html: true
