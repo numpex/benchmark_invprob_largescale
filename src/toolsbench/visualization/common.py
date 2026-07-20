@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 from pathlib import Path
 
 import matplotlib
@@ -16,6 +17,10 @@ DEFAULT_INFERENCE_OUTPUT_DIR = Path("visualizations") / "inference"
 DEFAULT_TRAINING_OUTPUT_DIR = Path("visualizations") / "training"
 DEFAULT_OUTPUT_DIR = DEFAULT_INFERENCE_OUTPUT_DIR
 TIMING_WARMUP_ITERATIONS = 2
+
+# benchopt stores non-scalar parameters (a 3D image_size, a per-axis patch_size)
+# as a pickled blob behind this marker.
+BENCHOPT_PKL_PREFIX = b"\x00benchopt-pkl\x00"
 
 COLORWAY = [
     "#2563eb",
@@ -107,7 +112,10 @@ def load_results(
     df = df.copy()
     add_hardware_columns(df)
     if "p_dataset_image_size" in df.columns:
-        df["image_mpix"] = (df["p_dataset_image_size"].astype(float) ** 2) / 1_000_000
+        # From the decoded dims, so a 3D volume works as well as a 2D square.
+        df["image_mpix"] = df["p_dataset_image_size"].map(
+            lambda size: float(np.prod(normalize_size(size))) / 1_000_000
+        )
     df["config_label"] = df.apply(config_label, axis=1)
     df["method_label"] = df.apply(method_label, axis=1)
     return df, path
@@ -130,6 +138,27 @@ def parse_gpus_from_gres(gres: object) -> int:
     return 1
 
 
+def decode_param(value):
+    """Decode a benchopt parameter, which pickles non-scalar values into bytes."""
+    if isinstance(value, (bytes, bytearray)) and value.startswith(BENCHOPT_PKL_PREFIX):
+        return pickle.loads(bytes(value)[len(BENCHOPT_PKL_PREFIX) :])
+    return value
+
+
+def normalize_size(size) -> tuple[int, ...]:
+    """Spatial-size tuple from an image/patch param (int, [s], [h, w] or [d, h, w])."""
+    size = decode_param(size)
+    if isinstance(size, (list, tuple, np.ndarray)):
+        dims = tuple(int(s) for s in size)
+        return dims * 2 if len(dims) == 1 else dims
+    return (int(size), int(size))
+
+
+def size_label(size) -> str:
+    """Format an image/patch size for labels, e.g. ``4096x4096`` or ``8x256x256``."""
+    return "x".join(str(d) for d in normalize_size(size))
+
+
 def config_label(row: pd.Series) -> str:
     """Compact label for a distributed configuration."""
     n_gpus = int(row["n_gpus"])
@@ -142,12 +171,18 @@ def config_label(row: pd.Series) -> str:
 
 
 def method_label(row: pd.Series) -> str:
-    """Compact label for patch/overlap choices."""
-    patch = int(row["p_solver_patch_size"])
-    overlap = int(row["p_solver_overlap"])
-    if patch == 0:
+    """Compact label for patch/overlap choices.
+
+    Patch and overlap may be per-axis (a 3D run), in which case they are shown as
+    ``8x256x256`` rather than a single number.
+    """
+    patch = decode_param(row["p_solver_patch_size"])
+    overlap = decode_param(row["p_solver_overlap"])
+    if isinstance(patch, (list, tuple, np.ndarray)):
+        return f"patch {size_label(patch)}, overlap {size_label(overlap)}"
+    if int(patch) == 0:
         return "non-distributed"
-    return f"patch {patch}, overlap {overlap}"
+    return f"patch {int(patch)}, overlap {int(overlap)}"
 
 
 def summarize_configs(df: pd.DataFrame) -> pd.DataFrame:

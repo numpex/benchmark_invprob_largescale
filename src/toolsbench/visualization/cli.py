@@ -9,6 +9,10 @@ from toolsbench.visualization.common import (
     DEFAULT_INFERENCE_OUTPUT_DIR,
     DEFAULT_TRAINING_OUTPUT_DIR,
 )
+from toolsbench.visualization.inference.comm_inference import (
+    DEFAULT_SKIP_WARMUP as COMM_INFERENCE_SKIP_WARMUP,
+    create_comm_inference_visualizations,
+)
 from toolsbench.visualization.inference.compile_speedup import (
     create_compile_speedup_visualizations,
     create_denoiser_compile_visualizations,
@@ -79,6 +83,22 @@ def _build_inference_parser() -> argparse.ArgumentParser:
         "--roofline",
         action="store_true",
         help="Also plot the roofline (arithmetic intensity vs speedup).",
+    )
+
+    comm_inference = subparsers.add_parser(
+        "comm_inference",
+        aliases=["comm-inference"],
+        help="Visualize the denoiser/gradient compute-vs-communication breakdown.",
+    )
+    _add_results_args(comm_inference, DEFAULT_INFERENCE_OUTPUT_DIR)
+    comm_inference.add_argument(
+        "--skip-warmup",
+        type=int,
+        default=COMM_INFERENCE_SKIP_WARMUP,
+        help=(
+            "Timed iterations to drop per configuration. Counted from the first "
+            "iteration that carries timings, not from stop_val=0."
+        ),
     )
     return parser
 
@@ -161,6 +181,10 @@ def _run_inference(args, parser: argparse.ArgumentParser) -> list[Path]:
     if experiment == "denoiser_compile":
         return [create_denoiser_compile_visualizations(
             args.results, Path(args.output_dir), roofline=args.roofline
+        )]
+    if experiment == "comm_inference":
+        return [create_comm_inference_visualizations(
+            args.results, Path(args.output_dir), skip_warmup=args.skip_warmup
         )]
     parser.error(f"Unknown inference experiment: {args.experiment}")
     return []

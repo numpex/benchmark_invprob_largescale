@@ -22,6 +22,10 @@ class DenoiserSolver:
     - ``"pre"``: compile the denoiser before ``distribute``.
     - ``"post"``: compile the distributed wrapper (requires
       ``distribute_denoiser=True``; ``distribute`` also tiles on a single GPU).
+
+    ``shape`` overrides the tensor shape to denoise; ``None`` uses the dataset's
+    ground-truth shape. Since the probe only denoises random noise and never uses
+    the physics or measurements, the shape is free to differ from the dataset's.
     """
 
     def __init__(
@@ -40,6 +44,7 @@ class DenoiserSolver:
         overlap=32,
         max_batch_size=0,
         roofline=True,
+        shape=None,
     ):
         if compile == "post" and not distribute_denoiser:
             raise ValueError(
@@ -60,15 +65,18 @@ class DenoiserSolver:
         self.overlap = overlap
         self.max_batch_size = max_batch_size
         self.roofline = roofline
+        self.shape = (
+            tuple(shape) if shape is not None else tuple(problem.ground_truth_shape)
+        )
         self.reconstruction = None
+        self.reference = None
         self.roofline_metrics = {}
 
     def run(self, cb):
 
-        self.reconstruction = torch.rand(
-            self.problem.ground_truth_shape, device=self.device
-        )
-        print("Reconstruction initialized.")
+        self.reconstruction = torch.rand(self.shape, device=self.device)
+        self.reference = self.reconstruction.clone()
+        print(f"Reconstruction initialized with shape {tuple(self.shape)}.")
 
         if self.roofline:
             self.roofline_metrics = self._profile_roofline()
@@ -87,7 +95,7 @@ class DenoiserSolver:
 
     def _setup_denoiser(self):
         denoiser = create_denoiser(
-            self.denoiser, self.problem.ground_truth_shape, self.device, torch.float32
+            self.denoiser, self.shape, self.device, torch.float32
         )
 
         if self.compile == "pre":
@@ -99,9 +107,7 @@ class DenoiserSolver:
                 self.ctx,
                 patch_size=self.patch_size,
                 overlap=self.overlap,
-                tiling_dims=(
-                    (-3, -2, -1) if len(self.problem.ground_truth_shape) == 5 else (-2, -1)
-                ),
+                tiling_dims=((-3, -2, -1) if len(self.shape) == 5 else (-2, -1)),
                 max_batch_size=self.max_batch_size,
                 type_object="denoiser",
             )
@@ -118,7 +124,7 @@ class DenoiserSolver:
         and by tiling. Skipped (empty metrics) if the full image does not fit.
         """
         model = create_denoiser(
-            self.denoiser, self.problem.ground_truth_shape, self.device, torch.float32
+            self.denoiser, self.shape, self.device, torch.float32
         )
         try:
             metrics = profile_roofline(model, self.reconstruction, self.denoiser_sigma)
@@ -141,7 +147,7 @@ class DenoiserSolver:
                 self.profiler.end_iteration(self.ctx)
 
     def get_result(self):
-        result = dict(reconstruction=self.reconstruction)
+        result = dict(reconstruction=self.reconstruction, ground_truth=self.reference)
         result.update(self.roofline_metrics)
         if self.profiler is not None:
             result.update(self.profiler.get_current_metrics())

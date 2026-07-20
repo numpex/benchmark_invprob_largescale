@@ -80,6 +80,10 @@ def _make_solver(**attrs):
         init_method="pseudo_inverse",
         compile=None,
         reconstruction=torch.zeros(1, 1, 8, 8),
+        # Solver-side shape override; None/unoverridden mirrors __init__ defaults.
+        shape=(1, 1, 8, 8),
+        shape_overridden=False,
+        reference=None,
     )
     defaults.update(attrs)
     for k, v in defaults.items():
@@ -296,6 +300,7 @@ class TestDenoiserSolver:
     def test_get_result_includes_roofline_and_profiler(self):
         solver = DenoiserSolver.__new__(DenoiserSolver)
         solver.reconstruction = torch.ones(1, 1, 4, 4)
+        solver.reference = torch.zeros(1, 1, 4, 4)
         solver.roofline_metrics = {"flops": 100, "mem_bytes": 10, "arith_intensity": 10.0}
         solver.profiler = MagicMock()
         solver.profiler.get_current_metrics.return_value = {"denoise_time_sec": 0.5}

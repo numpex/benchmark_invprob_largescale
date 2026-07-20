@@ -25,6 +25,7 @@ class Objective(BaseObjective):
 
     parameters = {
         "save_output_figures": [False],
+        "additional_metrics": [True],
     }
 
     # The three methods below define the links between the Dataset,
@@ -94,7 +95,7 @@ class Objective(BaseObjective):
             **self._extra_kwargs,
         )
 
-    def evaluate_result(self, reconstruction, name, **kwargs):
+    def evaluate_result(self, reconstruction, name, ground_truth=None, **kwargs):
         """Compute the objective value(s) given the output of a solver.
 
         Parameters
@@ -103,6 +104,10 @@ class Objective(BaseObjective):
             Reconstructed image from solver.
         name : str
             Name identifier for the solver/configuration.
+        ground_truth : torch.Tensor, optional
+            Reference to score against, when the solver works on a different shape
+            than the dataset (e.g. the Denoiser probe's solver-side image_size /
+            batch_size). Defaults to the dataset ground truth.
         **kwargs : dict
             Optional GPU and step metrics including:
             - gpu_memory_allocated_mb, gpu_memory_reserved_mb,
@@ -121,14 +126,26 @@ class Objective(BaseObjective):
             'psnr', and optional GPU/step metrics.
         """
         with torch.no_grad():
+            gt = ground_truth if ground_truth is not None else self.ground_truth
             # Ensure reconstruction is on the same device as ground truth
-            reconstruction = reconstruction.to(self.ground_truth.device)
+            reconstruction = reconstruction.to(gt.device)
             reconstruction = torch.clamp(
                 reconstruction, min=self.min_pixel, max=self.max_pixel
             )
-            ground_truth = torch.clamp(
-                self.ground_truth, min=self.min_pixel, max=self.max_pixel
-            )
+            ground_truth = torch.clamp(gt, min=self.min_pixel, max=self.max_pixel)
+
+            if not self.additional_metrics:
+                psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
+                psnr = (
+                    psnr_tensor.mean().item()
+                    if psnr_tensor.numel() > 1
+                    else psnr_tensor.item()
+                )
+                result = dict(value=-psnr, psnr=psnr)
+                for key, value in kwargs.items():
+                    if value is not None:
+                        result[key] = value
+                return result
 
             psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
             ssim_tensor = self.ssim_metric(reconstruction, ground_truth)

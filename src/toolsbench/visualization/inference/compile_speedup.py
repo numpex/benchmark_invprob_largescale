@@ -11,7 +11,6 @@ Two independent entry points, one per experiment config:
 
 from __future__ import annotations
 
-import pickle
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -23,7 +22,9 @@ from toolsbench.visualization.common import (
     COLORWAY,
     DEFAULT_OUTPUT_DIR,
     configure_matplotlib,
+    decode_param,
     load_results,
+    normalize_size,
     style_axes,
     write_figure,
 )
@@ -174,27 +175,8 @@ def _plot_compile_speedup(summary: pd.DataFrame, output_path: Path) -> str:
 # Denoiser compile benchmark (denoiser_compile config)
 # ---------------------------------------------------------------------------
 
-_PKL_PREFIX = b"\x00benchopt-pkl\x00"
-
-
-def _decode_param(value):
-    """Decode a benchopt parameter that may be pickled (e.g. a list image_size)."""
-    if isinstance(value, (bytes, bytearray)) and value.startswith(_PKL_PREFIX):
-        return pickle.loads(bytes(value)[len(_PKL_PREFIX):])
-    return value
-
-
-def _normalize_size(size) -> tuple[int, ...]:
-    """Spatial-size tuple from a decoded image_size (int/[s]/[h,w]/[d,h,w])."""
-    if isinstance(size, (list, tuple)):
-        if len(size) == 1:
-            return (int(size[0]), int(size[0]))
-        return tuple(int(s) for s in size)
-    return (int(size), int(size))
-
-
 def _shape_label(size) -> str:
-    dims = _normalize_size(size)
+    dims = normalize_size(size)
     if len(dims) == 3:
         d, h, w = dims
         return f"{d}³" if d == h == w else f"{d}×{h}×{w}"
@@ -202,11 +184,11 @@ def _shape_label(size) -> str:
 
 
 def _dim_of(size) -> int:
-    return 3 if len(_normalize_size(size)) == 3 else 2
+    return 3 if len(normalize_size(size)) == 3 else 2
 
 
 def _area(size) -> int:
-    dims = _normalize_size(size)
+    dims = normalize_size(size)
     prod = 1
     for d in dims:
         prod *= d
@@ -235,7 +217,7 @@ def _denoiser_summary(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["compile_mode"] = df["p_solver_compile"].fillna("None").astype(str)
     df["arch"] = df["p_solver_denoiser"].astype(str)
-    size = df["p_dataset_image_size"].map(_decode_param)
+    size = df["p_dataset_image_size"].map(decode_param)
     df["shape"] = size.map(_shape_label)
     df["dim"] = size.map(_dim_of)
     df["area"] = size.map(_area)
