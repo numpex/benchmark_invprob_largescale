@@ -1,0 +1,25 @@
+---
+import type { CollectionEntry } from "astro:content";
+
+interface Props {
+  findings: CollectionEntry<"technicalContent">[];
+}
+
+const { findings } = Astro.props;
+---
+
+<div class="finding-list">
+  {
+    findings.map((entry, index) => (
+      <a class="finding" href={`/${entry.id}/`}>
+        <span>{String(index + 1).padStart(2, "0")}</span>
+        <div>
+          <small>{entry.data.eyebrow}</small>
+          <h2>{entry.data.title}</h2>
+          <p>{entry.data.description}</p>
+        </div>
+        <b aria-hidden="true">→</b>
+      </a>
+    ))
+  }
+</div>

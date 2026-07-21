@@ -1,0 +1,27 @@
+---
+import "../styles/components/header.css";
+const nav = [
+  { label: "Motivation", href: "/#motivation" },
+  { label: "Distributed solvers", href: "/#distributed" },
+  { label: "Benchmark", href: "/#architecture" },
+  { label: "Results", href: "/#findings" },
+];
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/" aria-label="Inverse Problems Benchmark home">
+      <img class="numpex-logo" src="/logo_numpex.png" alt="NumPEx" />
+      <span><b>Inverse Problems</b><small>at scale</small></span>
+    </a>
+    <nav aria-label="Main navigation">
+      {nav.map((item) => <a href={item.href}>{item.label}</a>)}
+    </nav>
+    <a
+      class="source-link"
+      href="https://github.com/numpex/benchmark_invprob_largescale"
+      target="_blank"
+      rel="noreferrer">Source <span aria-hidden="true">↗</span></a
+    >
+  </div>
+</header>

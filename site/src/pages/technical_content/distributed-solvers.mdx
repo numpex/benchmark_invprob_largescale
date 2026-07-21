@@ -1,0 +1,869 @@
+---
+eyebrow: "deepinv.distributed"
+title: "Distributed inverse problem solvers with DeepInverse"
+description: "How DeepInverse scales modern reconstruction algorithms across multiple devices by distributing physics operators, learned priors, and optimization algorithms."
+---
+
+<div class="status">
+  <p>
+    This page introduces the ideas behind <code>deepinv.distributed</code>, the
+    distributed computation framework of DeepInverse. It focuses on the concepts
+    and design principles rather than the API itself. For complete reference
+    documentation and usage examples, see the <a href="https://deepinv.github.io/deepinv/user_guide/reconstruction/distributed.html">distributed reconstruction guide</a>
+    and the <a href="https://deepinv.github.io/deepinv/user_guide/training/distributed.html">distributed training guide</a>.
+  </p>
+</div>
+
+<p class="lead">
+  Modern inverse-problem solvers combine accurate physical models with powerful
+  learned image priors, achieving reconstruction quality that was impossible to reach a
+  few years ago. However, these advances have largely been developed under one
+  implicit assumption: the entire reconstruction can be performed on a single
+  GPU. As imaging experiments grow in size, this assumption becomes 
+  the main obstacle to applying these methods in practice.
+</p>
+
+## 1. Why distributed inverse problems?
+
+Many imaging modalities are producing data samples whose size is measured in
+hundreds of millions—or even billions—of pixels or voxels. Three-dimensional
+microscopy, synchrotron tomography, computational photography, astronomy, and
+large-scale medical imaging all routinely generate acquisitions that challenge
+the memory capacity of modern GPUs.
+
+At these scales, reconstruction is no longer limited only by the mathematical
+algorithm. It is constrained by hardware.
+
+Some applications involve large measurement datasets: thousands of
+projections or Fourier measurements, or complex acquisition operators that
+must all be stored and evaluated efficiently. Others are limited by the learned
+prior itself. Modern denoisers and diffusion models create large intermediate
+feature maps whose memory footprint grows quickly with image size, particularly
+during training when activations must be stored for backpropagation.
+
+Eventually, either the measurements, the neural network, or both become too
+large for a single GPU.
+
+Distributed computing provides a natural way to overcome this limitation by
+sharing both computation and memory across several GPUs or compute nodes.
+However, distributing inverse problems is fundamentally different from
+distributing conventional deep learning.
+
+### The challenge of distributed reconstruction for inverse problems
+
+Distributed deep learning has become standard practice. During training,
+different GPUs process different samples from the same minibatch (data parallelism), while
+periodically synchronizing gradients. Since each sample is independent, the
+computation scales naturally across devices. In other cases, large models can be split across GPUs,
+with each device being responsible for a different layer (pipeline parallelism) or computational block of the network (model parallelism).
+However, these strategies rely on the assumption that each data sample is rather small.
+
+Things work differently for large inverse problems.
+
+During reconstruction there is often only **one object**: one microscopy volume, one astronomical observation, or one tomography scan.
+Multiple GPUs therefore cannot work independently on different samples. Instead,
+they must cooperate on different parts of the **same reconstruction** while
+maintaining a single global iterate throughout the optimization.
+
+This introduces a different form of parallelism. Rather than distributing a
+dataset, we distribute the computation that occurs _inside_ a reconstruction
+algorithm.
+
+The goal of <code>deepinv.distributed</code> is to make this form of parallelism
+accessible without changing the scientific abstractions that inverse problem
+researchers and practitioners already use.
+
+## 2. Modern inverse problems share the same computational structure
+
+Although reconstruction algorithms come in many forms—Plug-and-Play methods,
+RED, algorithm unrolling, diffusion-based solvers, score-based methods, and
+others—they all follow a similar computational pattern.
+
+Every iteration alternates between two complementary operations:
+- a **physics-based update** that enforces consistency with the measurements
+- a **learned prior** that incorporates knowledge about the signal class through a denoiser, a learned regularizer, a score network, or another neural model.
+
+In other words, most modern reconstruction algorithms repeatedly exchange
+information between **physics** and **data-driven** components.
+
+<div
+  class="solver-loop"
+  role="img"
+  aria-label="An inverse-problem solver repeatedly alternates between a physics-based update and a neural-network forward or backward pass"
+>
+  <div class="solver-block solver-block--physics">
+    <span>01 · Physics block</span>
+    <strong>Physics-based update</strong>
+    <small>Forward model · Adjoint · Data-fidelity gradient</small>
+  </div>
+
+<div class="solver-loop__arrows" aria-hidden="true">
+  <span>iterate</span>
+  <svg viewBox="0 0 140 84">
+    <defs>
+      <marker
+        id="article-arrow-physics"
+        markerWidth="8"
+        markerHeight="8"
+        refX="7"
+        refY="4"
+        orient="auto"
+      >
+        <path d="M0 0 8 4 0 8Z"></path>
+      </marker>
+      <marker
+        id="article-arrow-learning"
+        markerWidth="8"
+        markerHeight="8"
+        refX="7"
+        refY="4"
+        orient="auto"
+      >
+        <path d="M0 0 8 4 0 8Z"></path>
+      </marker>
+    </defs>
+    <path
+      class="solver-loop__forward"
+      d="M4 24 C40 5 100 5 136 24"
+      marker-end="url(#article-arrow-physics)"
+    ></path>
+    <path
+      class="solver-loop__back"
+      d="M136 60 C100 79 40 79 4 60"
+      marker-end="url(#article-arrow-learning)"
+    ></path>
+  </svg>
+</div>
+
+  <div class="solver-block solver-block--learned">
+    <span>02 · Learned block</span>
+    <strong>Network forward / backward</strong>
+    <small>Denoiser · Regularizer · Score model</small>
+  </div>
+</div>
+
+The two blocks have fundamentally different computational characteristics.
+
+The **physics block** is driven by the acquisition process. It often manipulates
+large measurement arrays, collections of acquisition operators, FFT buffers, or
+projection geometries. Memory consumption scales with the complexity of the
+measurement model and the size of the target.
+
+The **learned block** behaves differently. Neural networks operate directly on
+the reconstructed signal and typically create many intermediate activations.
+During training, these activations must also be retained for backpropagation,
+making the memory footprint of the learned prior grow rapidly with image or volume size.
+
+Consequently, different applications encounter different bottlenecks. Some are
+limited almost entirely by the forward model, others by the neural network, and
+in certain cases by both simultaneously.
+
+### Two bottlenecks, two distribution strategies
+
+This observation is the foundation of
+
+<code>deepinv.distributed</code>.
+
+Instead of introducing a single monolithic distributed solver, DeepInverse
+distributes the two computational building blocks independently.
+
+The physics block is naturally distributed by partitioning acquisition operators
+and measurements across devices. Each GPU evaluates only its local operators,
+while communication reconstructs the global update.
+
+The learned block is distributed differently. Large images or volumes are split
+into overlapping spatial regions that can be processed independently by the same
+neural network before being assembled into a single reconstruction.
+
+<div class="split-grid">
+  <div class="split-card">
+    <span class="split-card__tag">Physics block</span>
+    <strong>Operator / measurement decomposition</strong>
+    <span class="split-card__copy">
+      Distribute acquisition operators and measurements across devices.
+    </span>
+    <small>
+      Best suited when the forward model dominates memory or computation.
+    </small>
+  </div>
+
+  <div class="split-card split-card--warm">
+    <span class="split-card__tag">Learned block</span>
+    <strong>Spatial signal decomposition</strong>
+    <span class="split-card__copy">
+      Distribute overlapping image or volume tiles across devices.
+    </span>
+    <small>
+      Best suited when the neural network becomes the computational bottleneck.
+    </small>
+  </div>
+</div>
+
+These two strategies are independent and composable.
+
+A reconstruction algorithm may distribute only the physics, only the learned
+prior, or both simultaneously. Since most inverse-problem solvers are built by
+combining these two operations, the same distributed building blocks can support
+a wide variety of reconstruction methods without changing the algorithm itself.
+
+The remainder of this page explains how these distributed blocks are implemented
+and how they can be composed to build scalable Plug-and-Play algorithms,
+unrolled networks, and other modern reconstruction methods.
+
+## 3. The distributed computation model
+
+The key idea behind `deepinv.distributed` is simple.
+
+A reconstruction algorithm should not need to know **how** its computation is
+distributed. Whether a denoiser runs on one GPU or eight GPUs, or whether a
+physics operator is evaluated locally or across several nodes, its scientific
+role inside the optimization algorithm remains exactly the same.
+
+DeepInverse therefore separates two concerns:
+
+- **the algorithm**, which defines _what_ computation should be performed;
+- **the distributed runtime**, which decides _where_ that computation is executed.
+
+From the user's perspective, physics operators, data-fidelity terms, denoisers,
+and optimization algorithms keep exactly the same interface. Distribution is
+introduced by wrapping these objects, not by rewriting them.
+
+Two components make this possible.
+
+1. A **distributed execution context**, responsible for coordinating devices and
+   communication.
+2. A generic **`distribute(...)` wrapper**, which recognizes DeepInverse objects
+   and applies the appropriate distribution strategy.
+
+This separation keeps distributed implementations modular: every computational
+building block can be distributed independently while remaining compatible with
+the rest of the DeepInverse ecosystem.
+
+---
+
+### The execution context
+
+A distributed reconstruction is executed by several independent Python
+processes. Each process—called a **rank**—typically controls one GPU.
+
+Every rank executes exactly the same Python program. What differs from one rank
+to another is the portion of the computation it owns: one rank may process a
+subset of acquisition operators, while another evaluates different image tiles.
+
+The `DistributedContext` object initializes this execution environment. It
+
+- detects whether the script was launched in distributed mode,
+- initializes the communication backend,
+- assigns each process to the appropriate device,
+- exposes the rank index and the total number of participating processes,
+- and cleans up the distributed environment when execution finishes.
+
+The same code also runs without modification on a single GPU,
+making it easy to prototype algorithms locally before scaling them to larger
+hardware.
+
+```python
+from deepinv.distributed import DistributedContext
+
+with DistributedContext(seed=0) as ctx:
+
+    x = x.to(ctx.device)
+
+    print(
+        f"Running rank {ctx.rank} "
+        f"out of {ctx.world_size} participating processes."
+    )
+```
+
+The reconstruction algorithm itself does not need to know whether it is running
+on one process or many. It simply uses the execution context to determine where
+its local computations should occur.
+
+---
+
+## 4. Distributed physics
+
+The first opportunity for parallelism lies in the acquisition model itself.
+
+Many imaging systems naturally produce measurements that can be decomposed into
+independent subsets. A CT acquisition consists of many projection angles, an MRI
+experiment may combine multiple coils, and computational imaging systems often
+stack several forward operators describing different measurements.
+
+Rather than storing every operator and every measurement on every GPU,
+DeepInverse distributes them across devices.
+
+Suppose the forward model can be written as
+
+$$
+A(x)=
+\begin{bmatrix}
+A_1(x) \\
+A_2(x) \\
+\vdots \\
+A_m(x)
+\end{bmatrix},
+$$
+
+where each operator corresponds to one subset of the acquisition.
+
+Each rank stores only the operators assigned to it.
+
+<div
+  class="flow-diagram"
+  role="img"
+  aria-label="A shared iterate is sent to several ranks, each evaluates local operators before combining the results."
+>
+  <div class="flow-node flow-node--input">
+    <small>shared iterate</small>
+    <strong>$x$</strong>
+  </div>
+
+<div class="flow-arrow">→</div>
+
+  <div class="flow-workers">
+    <div>
+      <small>rank 0</small>
+      <strong>$A_1(x)$</strong>
+    </div>
+
+    <div>
+      <small>rank 1</small>
+      <strong>$A_2(x)$</strong>
+    </div>
+
+    <div>
+      <small>rank 2</small>
+      <strong>$A_3(x)$</strong>
+    </div>
+
+  </div>
+
+<div class="flow-arrow">→</div>
+
+  <div class="flow-node">
+    <small>forward</small>
+    <strong>assemble measurements</strong>
+
+    <small>adjoint</small>
+    <strong>sum partial updates</strong>
+
+  </div>
+</div>
+
+The forward and adjoint computations naturally require different communication
+patterns.
+
+During the **forward model**, each GPU computes only its local measurements.
+These independent measurement blocks can then be gathered into the complete
+measurement vector if required.
+
+During the **adjoint**, every rank computes its local contribution to the image.
+Since all contributions live in the same signal space, they must be summed
+across all processes. This reduction produces the same adjoint result that would
+have been obtained on a single GPU.
+
+From the point of view of the optimization algorithm, the distributed operator
+behaves exactly like the original one.
+
+```python
+from deepinv.distributed import distribute
+from deepinv.physics import stack
+
+physics = stack(A1, A2, A3, A4)
+
+dphysics = distribute(physics, ctx)
+
+y = dphysics(x)
+
+x_back = dphysics.A_adjoint(y)
+```
+
+Notice that DeepInverse distributes **collections of operators**, not arbitrary
+black-box forward models. A monolithic operator must first be expressed as
+meaningful sub-operators before its computation can be shared across devices.
+
+---
+
+### Distributed data fidelity
+
+Once the physics has been distributed, the corresponding data-fidelity term
+becomes distributed almost automatically.
+
+For separable likelihoods,
+
+$$
+f(x)=\sum_i d_i(A_i(x),y_i),
+$$
+
+every rank evaluates the terms involving its local measurements.
+
+Only the final image-space quantities—typically the objective value or its
+gradient—must be communicated between processes.
+
+This design keeps the expensive operator applications local while minimizing the
+amount of data exchanged between GPUs.
+
+```python
+from deepinv.optim.data_fidelity import L2
+
+data_fidelity = distribute(L2(), ctx)
+
+gradient = data_fidelity.grad(x, y, dphysics)
+```
+
+The optimization algorithm therefore continues to compute exactly the same
+gradient as before, while the underlying operator evaluations are transparently
+distributed.
+
+---
+
+## 5. Distributed learned priors
+
+Physics operators are not always the dominant computational bottleneck.
+
+Modern denoisers and diffusion models often consume much more memory than the
+reconstructed image itself because every layer creates additional
+feature maps. During training, these activations must also be preserved until
+backpropagation, making memory requirements grow rapidly with image size.
+
+
+A common assumption is that a pixel or voxel depends only on a finite neighborhood of the input image or volume.
+This is true for convolutional networks, which have a finite receptive field.
+It is also acceptable for other architectures like transformers, which can be trained to ignore long-range dependencies.
+Large images can therefore be processed tile by tile, provided each tile contains sufficient context around its boundaries.
+
+DeepInverse exploits this observation by partitioning the image into overlapping
+tiles that are distributed across the available GPUs.
+
+<figure class="tiling-figure">
+  <div
+    class="tiling-flow"
+    role="img"
+    aria-label="A large image is partitioned into non-overlapping tile interiors. Only their surrounding halos overlap. The padded tiles are dispatched across four GPUs that apply the same neural network, then cropped, blended, and reassembled."
+  >
+    <div class="tiling-stage">
+      <span class="tiling-stage__step">01 · Input</span>
+      <strong>Large signal</strong>
+      <div class="tiling-canvas tiling-canvas--input" aria-hidden="true"></div>
+    </div>
+
+    <div class="tiling-arrow" aria-hidden="true">→</div>
+
+    <div class="tiling-stage">
+      <span class="tiling-stage__step">02 · Split</span>
+      <strong>Tiles + overlapping halos</strong>
+      <div class="tiling-partition" aria-hidden="true">
+        <div class="tiling-partition__map">
+          <div class="tiling-halos">
+            <span class="tiling-halo tiling-halo--one"></span>
+            <span class="tiling-halo tiling-halo--two"></span>
+            <span class="tiling-halo tiling-halo--three"></span>
+            <span class="tiling-halo tiling-halo--four"></span>
+          </div>
+          <div class="tiling-cores">
+            <span class="tiling-core tiling-core--one"></span>
+            <span class="tiling-core tiling-core--two"></span>
+            <span class="tiling-core tiling-core--three"></span>
+            <span class="tiling-core tiling-core--four"></span>
+          </div>
+        </div>
+        <div class="tiling-partition__legend">
+          <span><i class="tiling-key tiling-key--core"></i>tile</span>
+          <span><i class="tiling-key tiling-key--halo"></i>halo</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tiling-arrow" aria-hidden="true">→</div>
+
+    <div class="tiling-stage tiling-stage--workers">
+      <span class="tiling-stage__step">03 · Distribute</span>
+      <strong>Shared network</strong>
+      <div class="tiling-workers" aria-hidden="true">
+        <span><b>Dθ</b><small>GPU 0</small></span>
+        <span><b>Dθ</b><small>GPU 1</small></span>
+        <span><b>Dθ</b><small>GPU 2</small></span>
+        <span><b>Dθ</b><small>GPU 3</small></span>
+      </div>
+    </div>
+
+    <div class="tiling-arrow" aria-hidden="true">→</div>
+
+    <div class="tiling-stage">
+      <span class="tiling-stage__step">04 · Reduce</span>
+      <strong>Crop + blend</strong>
+      <div class="tiling-canvas tiling-canvas--blend" aria-hidden="true">
+        <span class="tiling-blend tiling-blend--x"></span>
+        <span class="tiling-blend tiling-blend--y"></span>
+      </div>
+    </div>
+
+    <div class="tiling-arrow" aria-hidden="true">→</div>
+
+    <div class="tiling-stage">
+      <span class="tiling-stage__step">05 · Output</span>
+      <strong>Full result</strong>
+      <div class="tiling-canvas tiling-canvas--output" aria-hidden="true"></div>
+    </div>
+
+  </div>
+  <figcaption>
+    The tile interiors form a disjoint partition: they do not overlap.
+    Only the dashed halos overlap neighboring tiles to provide network context.
+    After processing, halos are removed and the tile interiors are reassembled.
+  </figcaption>
+</figure>
+
+Each tile includes a **halo** surrounding the region of interest. This overlap
+provides the neural network with enough context near tile boundaries to avoid
+visible stitching artifacts in the reconstructed image.
+
+After every rank finishes processing its local tiles, overlapping regions are
+cropped or blended before the final image is assembled.
+
+From the user's perspective, the denoiser still receives one image and returns
+one image—the distributed runtime performs all tiling and communication
+internally.
+
+```python
+from deepinv.models import DRUNet
+
+denoiser = distribute(
+    DRUNet(),
+    ctx,
+    patch_size=256,
+    overlap=32,
+)
+
+x = denoiser(x, sigma=0.05)
+```
+
+Choosing the overlap involves a trade-off.
+
+Smaller overlaps reduce redundant computation but may introduce boundary
+artifacts if the network lacks sufficient context. Larger overlaps improve
+reconstruction quality at the cost of additional computation and communication.
+
+During training, DeepInverse can additionally reduce memory consumption through
+activation checkpointing, recomputing intermediate activations of batches of tiles during
+the backward pass instead of storing them all in memory.
+
+## 6. Building complete distributed reconstruction algorithms
+
+The previous sections introduced two independent distributed building blocks:
+
+- distributed **physics**, which partitions measurements and acquisition
+  operators;
+- distributed **learned priors**, which partition large images into overlapping
+  spatial regions.
+
+Together, these two primitives are sufficient to express many modern
+reconstruction algorithms.
+
+This is an important design choice. Rather than implementing a different
+distributed algorithm for every optimization method, DeepInverse distributes the
+computationally expensive operations that these methods already share. Once
+those building blocks become scalable, complete reconstruction algorithms can be
+assembled exactly as in the single-GPU setting.
+
+### Distributed Plug-and-Play
+
+Plug-and-Play (PnP) methods provide perhaps the simplest illustration of this
+philosophy.
+
+Each iteration alternates between two operations:
+
+1. enforce consistency with the measurements;
+2. apply a learned denoiser as an implicit image prior.
+
+Mathematically,
+
+$$
+\begin{aligned}
+z^k &= x^k-\gamma\nabla f(x^k),\\
+x^{k+1} &= D_\sigma(z^k).
+\end{aligned}
+$$
+
+Viewed through the lens of distributed computation, these two steps correspond
+exactly to the two building blocks introduced earlier.
+
+<div
+  class="iteration-strip"
+  role="img"
+  aria-label="A distributed Plug-and-Play iteration alternates distributed physics and distributed denoising."
+>
+  <span>
+    <small>current iterate</small>
+    <strong>$x^k$</strong>
+  </span>
+
+<b>→</b>
+
+<span class="iteration-strip__physics">
+  <small>distributed physics</small>
+  <strong>$\nabla f$</strong>
+</span>
+
+<b>→</b>
+
+<span>
+  <small>intermediate</small>
+  <strong>$z^k$</strong>
+</span>
+
+<b>→</b>
+
+<span class="iteration-strip__prior">
+  <small>distributed denoiser</small>
+  <strong>$D_\sigma$</strong>
+</span>
+
+<b>→</b>
+
+  <span>
+    <small>next iterate</small>
+    <strong>$x^{k+1}$</strong>
+  </span>
+</div>
+
+The optimization algorithm itself is completely unaware of how these operations
+are distributed.
+
+```python
+from deepinv.distributed import DistributedContext, distribute
+from deepinv.optim.data_fidelity import L2
+from deepinv.models import DRUNet
+
+with DistributedContext(seed=0) as ctx:
+
+    physics = distribute(stacked_physics, ctx)
+
+    fidelity = distribute(L2(), ctx)
+
+    denoiser = distribute(
+        DRUNet(),
+        ctx,
+        patch_size=256,
+        overlap=64,
+        max_batch_size=2,
+    )
+
+    x = initial_estimate.to(ctx.device)
+    y = [yi.to(ctx.device) for yi in measurements]
+
+    for _ in range(20):
+
+        x = x - stepsize * fidelity.grad(x, y, physics)
+
+        x = denoiser(x, sigma=0.05)
+```
+
+One advantage of this modular design is that distribution can be introduced only
+where it is needed.
+
+If the denoiser fits comfortably on a single GPU but the measurements do not,
+only the physics needs to be distributed.
+
+Conversely, if the forward model is relatively small but the neural prior
+becomes prohibitively large, only the denoiser can be tiled.
+
+This flexibility makes it possible to adapt the computation to the bottleneck of
+each application instead of imposing a single distributed strategy.
+
+---
+
+### Distributed algorithm unrolling
+
+Algorithm unrolling transforms an optimization algorithm into a trainable neural
+network by replacing fixed algorithmic parameters with learnable ones.
+
+Step sizes, denoiser strengths, proximal parameters, or even entire neural
+modules become trainable through backpropagation across several solver
+iterations.
+
+This introduces additional computational challenges.
+
+During training, every intermediate reconstruction and every neural-network
+activation must either remain in memory until the backward pass or be
+recomputed later using activation checkpointing.
+
+Meanwhile, trainable parameters are replicated across every participating GPU.
+After each backward pass, their gradients must be synchronized so that every
+rank performs exactly the same optimization step.
+
+DeepInverse handles these operations automatically.
+
+When an optimization model is created with `unfold=True`, distributing the
+model transparently distributes its trainable components, compatible priors, and
+data-fidelity terms, while the physics operator remains an independent
+distributed object.
+
+```python
+import deepinv as dinv
+import torch
+
+from deepinv.distributed import DistributedContext, distribute
+from deepinv.optim import PGD
+from deepinv.optim.data_fidelity import L2
+from deepinv.optim.prior import PnP
+
+with DistributedContext(seed=0, seed_offset=False) as ctx:
+
+    physics = distribute(stacked_physics, ctx)
+
+    model = PGD(
+        data_fidelity=L2(),
+        prior=PnP(denoiser),
+        max_iter=5,
+        unfold=True,
+        trainable_params=["stepsize", "sigma_denoiser"],
+    )
+
+    model = distribute(
+        model,
+        ctx,
+        patch_size=256,
+        overlap=32,
+        max_batch_size=8,
+    )
+
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=1e-4,
+    )
+
+    trainer = dinv.Trainer(
+        model=model,
+        physics=physics,
+        optimizer=optimizer,
+        train_dataloader=train_loader,
+        device=ctx.device,
+        verbose=(ctx.rank == 0),
+        show_progress_bar=(ctx.rank == 0),
+    )
+
+    trainer.train()
+```
+
+From the user's perspective, training proceeds exactly as in the single-GPU
+setting. The distributed runtime is responsible for coordinating communication,
+synchronizing gradients, and managing memory across all participating devices.
+
+---
+
+### Equivariant imaging
+
+Not every reconstruction algorithm fits into a simple optimization loop.
+
+Equivariant imaging, for example, trains reconstruction models in a self-supervised manner without requiring
+ground-truth images. Instead, it enforces consistency under transformations such
+as rotations, reflections, or other symmetry operations.
+
+This often requires several reconstructions and several evaluations of the
+forward model for a single training sample.
+
+Conceptually,
+
+$$
+y
+\rightarrow
+R(y)
+\rightarrow
+T(R(y))
+\rightarrow
+A(T(R(y)))
+\rightarrow
+R(A(T(R(y)))).
+$$
+
+Although this computation graph is more complex, it does not require additional
+distributed primitives.
+
+Every reconstruction inside the graph can reuse distributed optimization
+algorithms.
+
+Every evaluation of the forward model can reuse distributed physics.
+
+Every learned prior inside those reconstruction algorithms can reuse distributed
+tiling.
+
+In other words, DeepInverse distributes the expensive computational building
+blocks—not the outer training objective.
+
+This compositional design allows new reconstruction paradigms to benefit from
+distributed computation without requiring dedicated distributed
+implementations.
+
+<div class="note">
+<p>
+
+<strong>A useful way to think about the framework.</strong>
+
+DeepInverse does not provide separate distributed implementations of Plug-and-Play,
+algorithm unrolling, equivariant imaging, or future reconstruction methods.
+
+Instead, it provides distributed implementations of the operations that these
+algorithms repeatedly perform: physics operators, data-fidelity terms, learned
+priors, and optimization building blocks.
+
+As reconstruction methods evolve, these distributed components can simply be
+recombined into new algorithms.
+
+</p>
+</div>
+
+---
+
+## 7. Running a distributed reconstruction
+
+One of the design goals of `deepinv.distributed` is that the same script should
+run on a laptop, a workstation, or a multi-GPU cluster with minimal changes.
+
+During development, algorithms can first be verified on a single process:
+
+```bash
+python reconstruct.py
+```
+
+The same script can then be launched on multiple GPUs using PyTorch's launcher:
+
+```bash
+torchrun --standalone --nproc_per_node=4 reconstruct.py
+```
+
+On HPC systems, the cluster scheduler provides one process per GPU together with
+the rank information required to initialize distributed communication.
+
+Before evaluating performance, it is good practice to verify that
+
+1. the computational workload is balanced across devices;
+2. only one process writes shared outputs such as checkpoints or figures;
+3. distributed results match the single-GPU implementation within numerical
+   precision;
+
+Distributed reconstruction is not only about reducing runtime. Memory
+consumption, communication overhead, and workload balance all influence the
+overall scalability of an algorithm.
+
+---
+
+## Conclusion
+
+As imaging experiments increase in size, distributed computation is
+becoming an essential component of modern inverse problems.
+
+The central idea behind `deepinv.distributed` is that most reconstruction
+algorithms can be decomposed into a small number of computational building
+blocks: physics operators, data-fidelity terms and learned priors.
+
+By providing distributed implementations of these fundamental components,
+DeepInverse allows existing reconstruction algorithms to scale from a single GPU
+to multiple devices while preserving the abstractions familiar to
+inverse-problem researchers.
+
+Rather than introducing a new programming model, the framework lets researchers
+continue reasoning in terms of the mathematics of inverse problems, while the
+distributed runtime transparently handles communication, synchronization, and
+memory management behind the scenes.

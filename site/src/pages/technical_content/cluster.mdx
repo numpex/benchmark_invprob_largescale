@@ -1,0 +1,355 @@
+---
+eyebrow: "Execution environment"
+title: "From a yaml file to a cluster run with Benchopt"
+description: "Describe an experiment as a configuration file, then execute it on a laptop or a SLURM cluster with Benchopt."
+---
+
+<p class="lead">
+Large-scale imaging experiments involve many moving parts: datasets, algorithms,
+hardware configurations, and execution environments. Rather than writing
+different scripts for each machine, this benchmark separates the **scientific
+experiment** from **how it is executed**. An experiment is described once, then
+Benchopt automatically orchestrates its execution on anything from a single GPU
+to a multi-node SLURM cluster while keeping the benchmark itself unchanged.
+</p>
+
+## 1. Describing an experiment
+
+A benchmark experiment starts from a simple principle: describe **what should be
+compared**, not **how it should run**.
+
+Each experiment specifies three independent components:
+
+<div class="benchopt-triplet">
+  <div>
+    <span>01 · Dataset</span>
+    <strong>What problem is solved?</strong>
+    <small>
+      Defines the imaging problem, measurements, forward model, and ground
+      truth.
+    </small>
+  </div>
+
+  <div>
+    <span>02 · Solver</span>
+    <strong>How is it reconstructed?</strong>
+    <small>
+      Defines the reconstruction algorithm together with its parameters and
+      implementation options, as well as the distribution strategy for multi-GPU execution.
+    </small>
+  </div>
+
+  <div>
+    <span>03 · Evaluation</span>
+    <strong>How is it measured?</strong>
+    <small>
+      Defines the reconstruction metrics together with performance and memory
+      measurements collected during execution.
+    </small>
+  </div>
+</div>
+
+The experiment itself is described in a single YAML file. It specifies the
+dataset, the solver, and the parameter combinations to explore. Running the
+entire benchmark then becomes a single command:
+
+```bash
+benchopt run benchmark_inference/. \
+    --config configs/examples/tomography.yml
+```
+
+Benchopt automatically expands the requested parameter grid into individual
+experiments. If the configuration contains a single solver on one GPU, one job
+is executed. If it contains multiple reconstruction methods, image sizes, or
+GPU allocations, all corresponding jobs are generated automatically and their
+results are gathered into a common output file.
+
+<figure class="cluster-figure">
+  <div
+    class="benchopt-flow"
+    role="img"
+    aria-label="An experiment description is expanded into multiple configurations, executed automatically, and collected into a common result table."
+  >
+    <div class="cluster-stage cluster-stage--config">
+      <span>Experiment configuration</span>
+      <strong>Scientific experiment</strong>
+      <small>Dataset · Solver · Parameters</small>
+    </div>
+
+    <span class="cluster-arrow" aria-hidden="true">→</span>
+
+    <div class="cluster-stage cluster-stage--benchopt">
+      <span>Benchopt</span>
+      <strong>Experiment orchestration</strong>
+      <div class="matrix-dots" aria-hidden="true">
+        <i></i><i></i><i></i>
+        <i></i><i></i><i></i>
+        <i></i><i></i><i></i>
+      </div>
+    </div>
+
+    <span class="cluster-arrow" aria-hidden="true">→</span>
+
+    <div class="cluster-stage cluster-stage--results">
+      <span>Results</span>
+      <strong>Comparable measurements</strong>
+      <small>Quality · Time · Memory · Communication</small>
+    </div>
+  </div>
+
+  <figcaption>
+    An experiment is described as a yaml file, then BenchOpt handles the orchestration and execution.
+  </figcaption>
+</figure>
+
+
+## 2. From an experiment to a cluster execution
+
+Imagine the following experiment:
+
+- compare two solvers;
+- on three GPU configurations;
+- for two image sizes.
+
+Although this represents twelve different executions with different resource allocation configurations,
+the user only writes one experiment configuration and launches one Benchopt command. The benchmark
+framework expands the combinations automatically, submits the corresponding jobs
+to SLURM, and gathers the results.
+
+<figure class="cluster-figure">
+  <div
+    class="cluster-run-flow"
+    role="img"
+    aria-label="Benchopt submits experiments to SLURM, which allocates compute nodes before executing distributed jobs and collecting the results."
+  >
+    <div class="cluster-run-step">
+      <b>1</b>
+      <span>Launch</span>
+      <strong>Run Benchopt</strong>
+      <small>Read the experiment configuration</small>
+    </div>
+
+    <span class="cluster-arrow" aria-hidden="true">→</span>
+
+    <div class="cluster-run-step">
+      <b>2</b>
+      <span>Scheduling</span>
+      <strong>Create SLURM jobs</strong>
+      <small>One job for each experiment configuration</small>
+    </div>
+
+    <span class="cluster-arrow" aria-hidden="true">→</span>
+
+    <div class="cluster-run-step cluster-run-step--allocation">
+      <b>3</b>
+      <span>Execution</span>
+      <strong>Distributed computation</strong>
+      <div class="node-ranks" aria-hidden="true">
+        <i><em>GPU 0</em><em>GPU 1</em></i>
+        <i><em>GPU 2</em><em>GPU 3</em></i>
+      </div>
+    </div>
+
+    <span class="cluster-arrow" aria-hidden="true">→</span>
+
+    <div class="cluster-run-step">
+      <b>4</b>
+      <span>Results</span>
+      <strong>Automatic collection</strong>
+      <small>Measurements and reports</small>
+    </div>
+  </div>
+
+  <figcaption>
+    Benchopt orchestrates the experiment, while SLURM provides the requested
+    computing resources. The benchmark remains identical regardless of the
+    number of GPUs or compute nodes used.
+  </figcaption>
+</figure>
+
+One of the goals of this benchmark is to make it easy to compare different
+execution strategies and resource allocation while keeping the scientific problem unchanged. By simply
+changing the experiment configuration, the same reconstruction algorithm can be
+evaluated under a variety of distributed settings.
+
+Typical experiments include:
+
+<div class="measurement-grid">
+  <div>
+    <span>Single GPU</span>
+    <strong>Reference execution</strong>
+    <small>
+      Establish a baseline for reconstruction quality, execution time and
+      memory usage.
+    </small>
+  </div>
+
+  <div>
+    <span>Multi-GPU</span>
+    <strong>Distributed reconstruction</strong>
+    <small>
+      Evaluate how distributing the computation across several GPUs affects
+      runtime, memory consumption and communication overhead.
+    </small>
+  </div>
+
+  <div>
+    <span>Large-scale imaging</span>
+    <strong>Bigger datasets</strong>
+    <small>
+      Increase the image or volume size beyond what fits on a single GPU while
+      keeping the same reconstruction algorithm.
+    </small>
+  </div>
+
+  <div>
+    <span>Implementation choices</span>
+    <strong>Algorithmic variants</strong>
+    <small>
+      Compare tiling strategies, checkpointing, compilation or communication
+      options under the same evaluation protocol.
+    </small>
+  </div>
+</div>
+
+Because every experiment follows the same protocol, all these configurations
+can be compared directly. The benchmark records not only reconstruction quality,
+but also execution time, memory usage, and optional communication profiling,
+making it possible to study the trade-offs introduced by distributed execution.
+
+
+These capabilities make it possible to study several classical scaling
+scenarios.
+
+- **Strong scaling:** solving the same reconstruction problem faster by adding
+  computational resources.
+
+- **Weak scaling:** increasing the problem size while adding resources to keep
+  execution time approximately constant.
+
+Both scenarios can be expressed through ordinary experiment configurations,
+allowing distributed implementations to be compared under exactly the same
+benchmarking framework.
+
+
+## 3. Measuring performance
+
+Every experiment produces a common set of measurements describing both the
+quality of the reconstruction and the computational cost required to obtain it.
+Keeping these measurements consistent across all experiments makes results
+directly comparable, regardless of the execution strategy or hardware used.
+
+<div class="measurement-grid">
+  <div>
+    <span>Reconstruction quality</span>
+    <strong>Is the solution accurate?</strong>
+    <small>
+      Metrics such as PSNR, SSIM, MSE and asinh-PSNR quantify the quality of the
+      reconstructed image.
+    </small>
+  </div>
+
+  <div>
+    <span>Execution time</span>
+    <strong>How long does it take?</strong>
+    <small>
+      Total runtime together with timings of key computational stages such as
+      physics operators or denoising steps.
+    </small>
+  </div>
+
+  <div>
+    <span>Memory usage</span>
+    <strong>How much GPU memory is required?</strong>
+    <small>
+      Peak GPU memory usage helps determine which problem sizes fit on a given
+      hardware configuration.
+    </small>
+  </div>
+
+  <div>
+    <span>Communication</span>
+    <strong>What is the cost of distribution?</strong>
+    <small>
+      Optional communication profiling highlights synchronization and data
+      exchanges between distributed processes.
+    </small>
+  </div>
+</div>
+
+Together, these measurements provide a comprehensive view of an experiment. A
+distributed implementation should ideally reduce execution time or enable larger
+reconstruction problems while preserving reconstruction quality. Recording both
+scientific and computational metrics makes these trade-offs explicit.
+
+### Profiling at different levels
+
+Depending on the question being investigated, the benchmark can record
+measurements at different levels of detail.
+
+- The default lightweight profiler records execution time and peak GPU memory
+  with very little overhead, making it suitable for large benchmarking
+  campaigns.
+
+- More detailed profiling can be enabled when investigating performance
+  bottlenecks, providing operator-level timings or communication traces using
+  tools such as the PyTorch Profiler or NVIDIA Nsight Systems.
+
+The selected profiling mode is stored alongside the experiment configuration so
+that measurements remain reproducible and directly comparable.
+
+## 4. Running an experiment in practice
+
+Every benchmark follows the same workflow, regardless of the imaging problem or
+execution environment. The goal is to separate one-time preparation steps from
+the actual benchmark so that measurements focus only on reconstruction
+performance.
+
+<div class="reproduce-steps">
+  <div>
+    <b>1</b>
+    <span>Benchopt Install</span>
+    <strong>Prepare the benchmark components</strong>
+    <p>
+      Benchopt automatically installs the dependencies required by the selected
+      datasets, solvers, and evaluation procedures.
+    </p>
+  </div>
+
+  <div>
+    <b>2</b>
+    <span>Benchopt Prepare</span>
+    <strong>Generate reusable inputs</strong>
+    <p>
+      Datasets are downloaded or generated once before the benchmark starts.
+      These prepared inputs are cached and reused across experiments, avoiding
+      unnecessary preprocessing during performance measurements.
+    </p>
+  </div>
+
+  <div>
+    <b>3</b>
+    <span>Benchopt Run</span>
+    <strong>Execute the benchmark</strong>
+    <p>
+      Benchopt expands the requested experiment configurations, launches each
+      execution, evaluates the results, and automatically gathers all
+      measurements into a common benchmark report.
+    </p>
+  </div>
+</div>
+
+The same workflow is used whether experiments are executed locally or on a
+distributed SLURM cluster. Cluster execution simply replaces local execution by
+scheduled jobs while preserving exactly the same scientific experiment.
+
+Once an experiment completes, all measurements are gathered automatically into
+a common parquet file and html visualization.
+Each recorded experiment contains both the scientific configuration and the
+measured results. This includes the imaging problem, reconstruction algorithm,
+distribution strategy, hardware configuration and collected performance metrics.
+Because these elements are stored together, every reported measurement can be
+traced back to the exact experiment that produced it.
+
+This makes it straightforward to compare different algorithms, execution
+strategies or hardware configurations while preserving full reproducibility.

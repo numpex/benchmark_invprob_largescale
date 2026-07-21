@@ -1,0 +1,35 @@
+.section-intro {
+  max-width: 680px;
+}
+.section-intro--center {
+  margin-inline: auto;
+  text-align: center;
+}
+.section-intro--center .eyebrow {
+  justify-content: center;
+}
+.section-intro h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(2.5rem, 4.7vw, 4.7rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+.section-intro .description {
+  max-width: 620px;
+  margin: 24px auto 0;
+  color: var(--ink-600);
+  font-family: var(--serif);
+  font-size: 1.13rem;
+  line-height: 1.75;
+}
+.section-intro--dark h2 {
+  color: white;
+}
+.section-intro--dark .eyebrow {
+  color: var(--teal-bright);
+}
+.section-intro--dark .description {
+  color: rgba(255, 255, 255, 0.66);
+}

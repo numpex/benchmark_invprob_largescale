@@ -1,0 +1,75 @@
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 1px solid var(--line);
+  background: rgba(247, 248, 244, 0.86);
+  backdrop-filter: blur(14px);
+}
+
+.site-header .header-inner {
+  min-height: 82px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 30px;
+}
+
+.site-header .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  line-height: 1.05;
+}
+.site-header .brand b {
+  display: block;
+  font-family: var(--serif);
+  font-size: 1.03rem;
+}
+.site-header .brand small {
+  color: var(--ink-600);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.site-header .numpex-logo {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+.site-header nav {
+  display: flex;
+  gap: 26px;
+  color: var(--ink-600);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.site-header nav a:hover {
+  color: var(--ink-950);
+}
+.site-header .source-link {
+  justify-self: end;
+  padding: 8px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .site-header nav {
+    display: none;
+  }
+  .site-header .header-inner {
+    min-height: 70px;
+    display: flex;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 410px) {
+  .site-header .source-link {
+    display: none;
+  }
+}
