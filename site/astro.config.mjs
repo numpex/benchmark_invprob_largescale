@@ -6,6 +6,8 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 
 export default defineConfig({
+  site: "https://numpex.github.io",
+  base: "/benchmark_invprob_largescale/",
   markdown: {
     processor: unified({
       remarkPlugins: [remarkMath],

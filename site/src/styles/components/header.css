@@ -21,12 +21,19 @@
   gap: 12px;
   line-height: 1.05;
 }
-.site-header .brand b {
+.site-header .brand-logo {
+  flex: 0 0 auto;
+}
+.site-header .brand-copy {
+  display: block;
+}
+.site-header .brand-copy b {
   display: block;
   font-family: var(--serif);
   font-size: 1.03rem;
 }
-.site-header .brand small {
+.site-header .brand-copy small {
+  display: block;
   color: var(--ink-600);
   font-size: 0.67rem;
   font-weight: 700;
@@ -48,13 +55,34 @@
 .site-header nav a:hover {
   color: var(--ink-950);
 }
-.site-header .source-link {
+.site-header .header-actions {
   justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.site-header .docs-link,
+.site-header .source-link {
   padding: 8px 13px;
   border: 1px solid var(--line);
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 700;
+}
+.site-header .source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.site-header .source-link img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+.site-header .docs-link:hover,
+.site-header .source-link:hover {
+  border-color: var(--ink-400);
+  background: rgba(255, 255, 255, 0.55);
 }
 
 @media (max-width: 860px) {
@@ -69,7 +97,16 @@
 }
 
 @media (max-width: 410px) {
+  .site-header .source-link span {
+    display: none;
+  }
   .site-header .source-link {
+    padding-inline: 9px;
+  }
+  .site-header .docs-link {
+    padding-inline: 10px;
+  }
+  .site-header .brand-copy {
     display: none;
   }
 }

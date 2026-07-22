@@ -4,7 +4,7 @@ import { z } from "astro/zod";
 
 const technicalContent = defineCollection({
   loader: glob({
-    base: "./src/pages/technical_content",
+    base: "./src/content/technical_content",
     pattern: "**/*.{md,mdx}",
   }),
   schema: z.object({
@@ -15,6 +15,9 @@ const technicalContent = defineCollection({
     readingTime: z.string().optional(),
     featured: z.boolean().default(false),
     pageType: z.enum(["article", "listing"]).default("article"),
+    landingSection: z
+      .enum(["distributed", "architecture", "findings"])
+      .optional(),
   }),
 });
 

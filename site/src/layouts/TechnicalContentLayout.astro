@@ -8,13 +8,29 @@ interface Props {
   eyebrow: string;
   publishedAt?: Date;
   readingTime?: string;
+  landingSection?: "distributed" | "architecture" | "findings";
 }
 
-const { title, description, eyebrow, publishedAt, readingTime } = Astro.props;
+const {
+  title,
+  description,
+  eyebrow,
+  publishedAt,
+  readingTime,
+  landingSection,
+} = Astro.props;
 const date = publishedAt
   ? new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(publishedAt)
   : undefined;
-const backLink = { href: "/", label: "Benchmark overview" };
+const base = import.meta.env.BASE_URL;
+const landingLinks = {
+  distributed: { href: `${base}#distributed`, label: "Distributed solvers" },
+  architecture: { href: `${base}#architecture`, label: "Benchmark" },
+  findings: { href: `${base}#findings`, label: "Results" },
+};
+const backLink = landingSection
+  ? landingLinks[landingSection]
+  : { href: base, label: "Benchmark overview" };
 ---
 
 <BaseLayout

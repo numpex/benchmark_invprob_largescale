@@ -6,12 +6,13 @@ interface Props {
 }
 
 const { findings } = Astro.props;
+const base = import.meta.env.BASE_URL;
 ---
 
 <div class="finding-list">
   {
     findings.map((entry, index) => (
-      <a class="finding" href={`/${entry.id}/`}>
+      <a class="finding" href={`${base}${entry.id}/`}>
         <span>{String(index + 1).padStart(2, "0")}</span>
         <div>
           <small>{entry.data.eyebrow}</small>

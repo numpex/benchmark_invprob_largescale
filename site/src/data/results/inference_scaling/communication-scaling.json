@@ -1,0 +1,218 @@
+{
+  "id": "inference-communication-scaling",
+  "methodology": {
+    "aggregation": "mean over iterations strictly after iteration 2 within one benchmark run",
+    "caution": "CUDA section spans and communication kernels can overlap; compute and communication are diagnostics, not an additive wall-time split",
+    "communicationCuda": "NCCL/c10d device time attributed to physics and denoising sections",
+    "computeCuda": "physics and denoising CUDA section durations minus communication kernels attributed to those sections",
+    "independentRepetitions": 1,
+    "synchronizationCuda": "communication device time outside named sections; reported separately because it primarily reflects rank skew"
+  },
+  "provenance": {
+    "sources": [
+      {
+        "accelerator": "Tesla V100-SXM2-32GB: cuda_13.0",
+        "benchmarkGitTag": null,
+        "config": null,
+        "platform": "Linux",
+        "runDate": "2026-07-18T16:02:34.632074",
+        "source": "result_benchmark/benchmark_inference/comm_inference_2D/benchopt_run_2026-07-18_16h02m34.parquet",
+        "sourceSha256": "14cfbb90f76d70d52f92bebce954301680f6b50f8e220146a56491484940f679"
+      },
+      {
+        "accelerator": "Tesla V100-SXM2-32GB: cuda_13.0",
+        "benchmarkGitTag": null,
+        "config": null,
+        "platform": "Linux",
+        "runDate": "2026-07-18T16:04:10.341217",
+        "source": "result_benchmark/benchmark_inference/comm_inference_3D/benchopt_run_2026-07-18_16h04m10.parquet",
+        "sourceSha256": "442099bdf63ff59ee2fbec79a774c1e6744967f5f7a908e5bfda725aaba168f0"
+      }
+    ]
+  },
+  "schemaVersion": 1,
+  "values": [
+    {
+      "communicationCudaSec": 0.0,
+      "communicationSharePct": 0.0,
+      "computeCudaSec": 3.658275,
+      "computeSpeedup": null,
+      "gpuCount": 1,
+      "idealComputeSpeedup": null,
+      "iterationWallSec": 3.662522,
+      "mode": "non-distributed",
+      "nodeCount": 1,
+      "problem": "2D 4096x4096",
+      "synchronizationCudaSec": 0.0
+    },
+    {
+      "communicationCudaSec": 0.0,
+      "communicationSharePct": 0.0,
+      "computeCudaSec": 4.434498,
+      "computeSpeedup": 1.0,
+      "gpuCount": 1,
+      "idealComputeSpeedup": 1.0,
+      "iterationWallSec": 4.438646,
+      "mode": "distributed",
+      "nodeCount": 1,
+      "problem": "2D 4096x4096",
+      "synchronizationCudaSec": 0.0
+    },
+    {
+      "communicationCudaSec": 0.027504,
+      "communicationSharePct": 1.195833,
+      "computeCudaSec": 2.272493,
+      "computeSpeedup": 1.95138,
+      "gpuCount": 2,
+      "idealComputeSpeedup": 2.0,
+      "iterationWallSec": 2.304304,
+      "mode": "distributed",
+      "nodeCount": 1,
+      "problem": "2D 4096x4096",
+      "synchronizationCudaSec": 0.030623
+    },
+    {
+      "communicationCudaSec": 0.027717,
+      "communicationSharePct": 2.398646,
+      "computeCudaSec": 1.127815,
+      "computeSpeedup": 3.931938,
+      "gpuCount": 4,
+      "idealComputeSpeedup": 4.0,
+      "iterationWallSec": 1.159579,
+      "mode": "distributed",
+      "nodeCount": 1,
+      "problem": "2D 4096x4096",
+      "synchronizationCudaSec": 0.088383
+    },
+    {
+      "communicationCudaSec": 0.042652,
+      "communicationSharePct": 7.071344,
+      "computeCudaSec": 0.56052,
+      "computeSpeedup": 7.911401,
+      "gpuCount": 8,
+      "idealComputeSpeedup": 8.0,
+      "iterationWallSec": 0.607256,
+      "mode": "distributed",
+      "nodeCount": 2,
+      "problem": "2D 4096x4096",
+      "synchronizationCudaSec": 0.059665
+    },
+    {
+      "communicationCudaSec": 0.084498,
+      "communicationSharePct": 22.821626,
+      "computeCudaSec": 0.285755,
+      "computeSpeedup": 15.518553,
+      "gpuCount": 16,
+      "idealComputeSpeedup": 16.0,
+      "iterationWallSec": 0.37431,
+      "mode": "distributed",
+      "nodeCount": 4,
+      "problem": "2D 4096x4096",
+      "synchronizationCudaSec": 0.070254
+    },
+    {
+      "communicationCudaSec": 0.081157,
+      "communicationSharePct": 35.296347,
+      "computeCudaSec": 0.148774,
+      "computeSpeedup": 29.806944,
+      "gpuCount": 32,
+      "idealComputeSpeedup": 32.0,
+      "iterationWallSec": 0.233981,
+      "mode": "distributed",
+      "nodeCount": 8,
+      "problem": "2D 4096x4096",
+      "synchronizationCudaSec": 0.055407
+    },
+    {
+      "communicationCudaSec": 0.081754,
+      "communicationSharePct": 50.058168,
+      "computeCudaSec": 0.081564,
+      "computeSpeedup": 54.368161,
+      "gpuCount": 64,
+      "idealComputeSpeedup": 64.0,
+      "iterationWallSec": 0.167373,
+      "mode": "distributed",
+      "nodeCount": 16,
+      "problem": "2D 4096x4096",
+      "synchronizationCudaSec": 0.072046
+    },
+    {
+      "communicationCudaSec": 0.894416,
+      "communicationSharePct": 1.028444,
+      "computeCudaSec": 86.073477,
+      "computeSpeedup": 1.0,
+      "gpuCount": 2,
+      "idealComputeSpeedup": 1.0,
+      "iterationWallSec": 86.979787,
+      "mode": "distributed",
+      "nodeCount": 1,
+      "problem": "3D 512x512x512",
+      "synchronizationCudaSec": 2.1e-05
+    },
+    {
+      "communicationCudaSec": 1.530184,
+      "communicationSharePct": 3.432283,
+      "computeCudaSec": 43.051928,
+      "computeSpeedup": 1.999294,
+      "gpuCount": 4,
+      "idealComputeSpeedup": 2.0,
+      "iterationWallSec": 44.592076,
+      "mode": "distributed",
+      "nodeCount": 1,
+      "problem": "3D 512x512x512",
+      "synchronizationCudaSec": 0.018088
+    },
+    {
+      "communicationCudaSec": 0.862118,
+      "communicationSharePct": 3.89698,
+      "computeCudaSec": 21.260609,
+      "computeSpeedup": 4.048495,
+      "gpuCount": 8,
+      "idealComputeSpeedup": 4.0,
+      "iterationWallSec": 22.131742,
+      "mode": "distributed",
+      "nodeCount": 2,
+      "problem": "3D 512x512x512",
+      "synchronizationCudaSec": 0.213829
+    },
+    {
+      "communicationCudaSec": 0.659708,
+      "communicationSharePct": 5.824356,
+      "computeCudaSec": 10.666998,
+      "computeSpeedup": 8.069138,
+      "gpuCount": 16,
+      "idealComputeSpeedup": 8.0,
+      "iterationWallSec": 11.335702,
+      "mode": "distributed",
+      "nodeCount": 4,
+      "problem": "3D 512x512x512",
+      "synchronizationCudaSec": 0.093226
+    },
+    {
+      "communicationCudaSec": 0.416073,
+      "communicationSharePct": 7.210798,
+      "computeCudaSec": 5.354065,
+      "computeSpeedup": 16.076284,
+      "gpuCount": 32,
+      "idealComputeSpeedup": 16.0,
+      "iterationWallSec": 5.779118,
+      "mode": "distributed",
+      "nodeCount": 8,
+      "problem": "3D 512x512x512",
+      "synchronizationCudaSec": 0.054657
+    },
+    {
+      "communicationCudaSec": 0.219165,
+      "communicationSharePct": 7.319114,
+      "computeCudaSec": 2.775255,
+      "computeSpeedup": 31.014619,
+      "gpuCount": 64,
+      "idealComputeSpeedup": 32.0,
+      "iterationWallSec": 3.003396,
+      "mode": "distributed",
+      "nodeCount": 16,
+      "problem": "3D 512x512x512",
+      "synchronizationCudaSec": 0.030913
+    }
+  ]
+}

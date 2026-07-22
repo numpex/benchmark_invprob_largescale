@@ -27,11 +27,16 @@ def main(argv: list[str] | None = None) -> int:
         from toolsbench.visualization.cli import main as visualization_main
 
         return visualization_main("viztraining", argv[1:])
+    if argv[:1] == ["vizwebsite"]:
+        from toolsbench.visualization.cli import main as visualization_main
+
+        return visualization_main("vizwebsite", argv[1:])
 
     print(
         "toolsbench installs shared benchmark utilities. "
         "Run benchmarks with `benchopt run <benchmark_path>` or create "
         "visualizations with `toolsbench vizinference --help` or "
-        "`toolsbench viztraining --help`."
+        "`toolsbench viztraining --help`. Generate website result data with "
+        "`toolsbench vizwebsite --help`."
     )
     return 0

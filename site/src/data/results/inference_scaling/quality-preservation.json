@@ -1,0 +1,1225 @@
+{
+  "id": "inference-scaling-quality-preservation",
+  "methodology": {
+    "baselineGpuCountByImageSize": {
+      "2048": 1,
+      "4096": 1
+    },
+    "comparison": "PSNR at each iteration minus PSNR from the single-process configuration at the same iteration; image sizes without a single-process reference are excluded",
+    "independentRepetitions": 1,
+    "iterations": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "maxAbsoluteDifferenceDb": 0.001928
+  },
+  "provenance": {
+    "accelerator": "Tesla V100-SXM2-32GB: cuda_13.0",
+    "benchmarkGitTag": null,
+    "config": "benchmark_inference/configs/experiments/strong_scaling_inference.yml",
+    "platform": "Linux",
+    "runDate": "2026-06-30T09:44:33.899207",
+    "source": "result_benchmark/benchmark_inference/scaling/benchopt_run_2026-06-30_09h44m33.parquet",
+    "sourceSha256": "08bcca046f824754f8ad7942f89a0e8398cd9ce3c936746d10732ebe2b5e0414"
+  },
+  "schemaVersion": 1,
+  "values": [
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.573157,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 0,
+      "psnrDb": 5.573157,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.504477,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 1,
+      "psnrDb": 7.504483,
+      "psnrDifferenceDb": 6e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.432276,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 2,
+      "psnrDb": 9.432295,
+      "psnrDifferenceDb": 1.9e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.355789,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 3,
+      "psnrDb": 11.355827,
+      "psnrDifferenceDb": 3.8e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.272379,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 4,
+      "psnrDb": 13.272455,
+      "psnrDifferenceDb": 7.6e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.177894,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 5,
+      "psnrDb": 15.178034,
+      "psnrDifferenceDb": 0.00014
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.065615,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 6,
+      "psnrDb": 17.065859,
+      "psnrDifferenceDb": 0.000244
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.924788,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 7,
+      "psnrDb": 18.925203,
+      "psnrDifferenceDb": 0.000416
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.738621,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 8,
+      "psnrDb": 20.739326,
+      "psnrDifferenceDb": 0.000706
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.481987,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 9,
+      "psnrDb": 22.48317,
+      "psnrDifferenceDb": 0.001183
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.119659,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "iteration": 10,
+      "psnrDb": 24.121588,
+      "psnrDifferenceDb": 0.001928
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.573157,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 0,
+      "psnrDb": 5.573157,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.504477,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 1,
+      "psnrDb": 7.504483,
+      "psnrDifferenceDb": 6e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.432276,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 2,
+      "psnrDb": 9.432295,
+      "psnrDifferenceDb": 1.9e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.355789,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 3,
+      "psnrDb": 11.355827,
+      "psnrDifferenceDb": 3.8e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.272379,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 4,
+      "psnrDb": 13.272455,
+      "psnrDifferenceDb": 7.6e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.177894,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 5,
+      "psnrDb": 15.178034,
+      "psnrDifferenceDb": 0.00014
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.065615,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 6,
+      "psnrDb": 17.065859,
+      "psnrDifferenceDb": 0.000244
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.924788,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 7,
+      "psnrDb": 18.925203,
+      "psnrDifferenceDb": 0.000416
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.738621,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 8,
+      "psnrDb": 20.739326,
+      "psnrDifferenceDb": 0.000706
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.481987,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 9,
+      "psnrDb": 22.48317,
+      "psnrDifferenceDb": 0.001183
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.119659,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "iteration": 10,
+      "psnrDb": 24.121588,
+      "psnrDifferenceDb": 0.001928
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.573157,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 0,
+      "psnrDb": 5.573157,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.504477,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 1,
+      "psnrDb": 7.504483,
+      "psnrDifferenceDb": 6e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.432276,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 2,
+      "psnrDb": 9.432295,
+      "psnrDifferenceDb": 1.9e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.355789,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 3,
+      "psnrDb": 11.355827,
+      "psnrDifferenceDb": 3.8e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.272379,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 4,
+      "psnrDb": 13.272455,
+      "psnrDifferenceDb": 7.6e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.177894,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 5,
+      "psnrDb": 15.178034,
+      "psnrDifferenceDb": 0.00014
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.065615,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 6,
+      "psnrDb": 17.065859,
+      "psnrDifferenceDb": 0.000244
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.924788,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 7,
+      "psnrDb": 18.925203,
+      "psnrDifferenceDb": 0.000416
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.738621,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 8,
+      "psnrDb": 20.739326,
+      "psnrDifferenceDb": 0.000706
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.481987,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 9,
+      "psnrDb": 22.48317,
+      "psnrDifferenceDb": 0.001183
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.119659,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "iteration": 10,
+      "psnrDb": 24.121588,
+      "psnrDifferenceDb": 0.001928
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.573157,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 0,
+      "psnrDb": 5.573157,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.504477,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 1,
+      "psnrDb": 7.504483,
+      "psnrDifferenceDb": 6e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.432276,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 2,
+      "psnrDb": 9.432295,
+      "psnrDifferenceDb": 1.9e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.355789,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 3,
+      "psnrDb": 11.355827,
+      "psnrDifferenceDb": 3.8e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.272379,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 4,
+      "psnrDb": 13.272455,
+      "psnrDifferenceDb": 7.6e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.177894,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 5,
+      "psnrDb": 15.178034,
+      "psnrDifferenceDb": 0.00014
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.065615,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 6,
+      "psnrDb": 17.065859,
+      "psnrDifferenceDb": 0.000244
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.924788,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 7,
+      "psnrDb": 18.925203,
+      "psnrDifferenceDb": 0.000416
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.738621,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 8,
+      "psnrDb": 20.739326,
+      "psnrDifferenceDb": 0.000706
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.481987,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 9,
+      "psnrDb": 22.48317,
+      "psnrDifferenceDb": 0.001183
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.119659,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "iteration": 10,
+      "psnrDb": 24.121588,
+      "psnrDifferenceDb": 0.001928
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.573157,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 0,
+      "psnrDb": 5.573157,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.504477,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 1,
+      "psnrDb": 7.504483,
+      "psnrDifferenceDb": 6e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.432276,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 2,
+      "psnrDb": 9.432295,
+      "psnrDifferenceDb": 1.9e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.355789,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 3,
+      "psnrDb": 11.355827,
+      "psnrDifferenceDb": 3.8e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.272379,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 4,
+      "psnrDb": 13.272455,
+      "psnrDifferenceDb": 7.6e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.177894,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 5,
+      "psnrDb": 15.178034,
+      "psnrDifferenceDb": 0.00014
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.065615,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 6,
+      "psnrDb": 17.065859,
+      "psnrDifferenceDb": 0.000244
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.924788,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 7,
+      "psnrDb": 18.925203,
+      "psnrDifferenceDb": 0.000416
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.738621,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 8,
+      "psnrDb": 20.739326,
+      "psnrDifferenceDb": 0.000706
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.481987,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 9,
+      "psnrDb": 22.48317,
+      "psnrDifferenceDb": 0.001183
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.119659,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "iteration": 10,
+      "psnrDb": 24.121588,
+      "psnrDifferenceDb": 0.001928
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.573157,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 0,
+      "psnrDb": 5.573157,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.504477,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 1,
+      "psnrDb": 7.504483,
+      "psnrDifferenceDb": 6e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.432276,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 2,
+      "psnrDb": 9.432295,
+      "psnrDifferenceDb": 1.9e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.355789,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 3,
+      "psnrDb": 11.355827,
+      "psnrDifferenceDb": 3.8e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.272379,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 4,
+      "psnrDb": 13.272455,
+      "psnrDifferenceDb": 7.6e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.177894,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 5,
+      "psnrDb": 15.178034,
+      "psnrDifferenceDb": 0.00014
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.065615,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 6,
+      "psnrDb": 17.065859,
+      "psnrDifferenceDb": 0.000244
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.924788,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 7,
+      "psnrDb": 18.925203,
+      "psnrDifferenceDb": 0.000416
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.738621,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 8,
+      "psnrDb": 20.739326,
+      "psnrDifferenceDb": 0.000706
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.481987,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 9,
+      "psnrDb": 22.48317,
+      "psnrDifferenceDb": 0.001183
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.119659,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "iteration": 10,
+      "psnrDb": 24.121588,
+      "psnrDifferenceDb": 0.001928
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.57403,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 0,
+      "psnrDb": 5.57403,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.506506,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 1,
+      "psnrDb": 7.506511,
+      "psnrDifferenceDb": 5e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.43574,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 2,
+      "psnrDb": 9.435748,
+      "psnrDifferenceDb": 8e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.361218,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 3,
+      "psnrDb": 11.361217,
+      "psnrDifferenceDb": -2e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.280254,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 4,
+      "psnrDb": 13.280237,
+      "psnrDifferenceDb": -1.7e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.188903,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 5,
+      "psnrDb": 15.188861,
+      "psnrDifferenceDb": -4.2e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.080812,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 6,
+      "psnrDb": 17.08073,
+      "psnrDifferenceDb": -8.2e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.945696,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 7,
+      "psnrDb": 18.945568,
+      "psnrDifferenceDb": -0.000128
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.76733,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 8,
+      "psnrDb": 20.767155,
+      "psnrDifferenceDb": -0.000175
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.521181,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 9,
+      "psnrDb": 22.520985,
+      "psnrDifferenceDb": -0.000196
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.172585,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "iteration": 10,
+      "psnrDb": 24.172436,
+      "psnrDifferenceDb": -0.000149
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.57403,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 0,
+      "psnrDb": 5.57403,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.506506,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 1,
+      "psnrDb": 7.506511,
+      "psnrDifferenceDb": 5e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.43574,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 2,
+      "psnrDb": 9.435747,
+      "psnrDifferenceDb": 7e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.361218,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 3,
+      "psnrDb": 11.361216,
+      "psnrDifferenceDb": -3e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.280254,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 4,
+      "psnrDb": 13.280237,
+      "psnrDifferenceDb": -1.7e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.188903,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 5,
+      "psnrDb": 15.188858,
+      "psnrDifferenceDb": -4.5e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.080812,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 6,
+      "psnrDb": 17.080729,
+      "psnrDifferenceDb": -8.4e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.945696,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 7,
+      "psnrDb": 18.945564,
+      "psnrDifferenceDb": -0.000132
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.76733,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 8,
+      "psnrDb": 20.767151,
+      "psnrDifferenceDb": -0.000179
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.521181,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 9,
+      "psnrDb": 22.520979,
+      "psnrDifferenceDb": -0.000202
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.172585,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "iteration": 10,
+      "psnrDb": 24.172422,
+      "psnrDifferenceDb": -0.000162
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.57403,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 0,
+      "psnrDb": 5.57403,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.506506,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 1,
+      "psnrDb": 7.506511,
+      "psnrDifferenceDb": 5e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.43574,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 2,
+      "psnrDb": 9.435747,
+      "psnrDifferenceDb": 7e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.361218,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 3,
+      "psnrDb": 11.361216,
+      "psnrDifferenceDb": -3e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.280254,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 4,
+      "psnrDb": 13.280237,
+      "psnrDifferenceDb": -1.7e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.188903,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 5,
+      "psnrDb": 15.188858,
+      "psnrDifferenceDb": -4.5e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.080812,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 6,
+      "psnrDb": 17.080729,
+      "psnrDifferenceDb": -8.4e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.945696,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 7,
+      "psnrDb": 18.945564,
+      "psnrDifferenceDb": -0.000132
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.76733,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 8,
+      "psnrDb": 20.767151,
+      "psnrDifferenceDb": -0.000179
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.521181,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 9,
+      "psnrDb": 22.520979,
+      "psnrDifferenceDb": -0.000202
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.172585,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "iteration": 10,
+      "psnrDb": 24.172422,
+      "psnrDifferenceDb": -0.000162
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.57403,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 0,
+      "psnrDb": 5.57403,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.506506,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 1,
+      "psnrDb": 7.506511,
+      "psnrDifferenceDb": 5e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.43574,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 2,
+      "psnrDb": 9.435747,
+      "psnrDifferenceDb": 7e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.361218,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 3,
+      "psnrDb": 11.361216,
+      "psnrDifferenceDb": -3e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.280254,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 4,
+      "psnrDb": 13.280237,
+      "psnrDifferenceDb": -1.7e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.188903,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 5,
+      "psnrDb": 15.188858,
+      "psnrDifferenceDb": -4.5e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.080812,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 6,
+      "psnrDb": 17.080729,
+      "psnrDifferenceDb": -8.4e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.945696,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 7,
+      "psnrDb": 18.945564,
+      "psnrDifferenceDb": -0.000132
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.76733,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 8,
+      "psnrDb": 20.767151,
+      "psnrDifferenceDb": -0.000179
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.521181,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 9,
+      "psnrDb": 22.520979,
+      "psnrDifferenceDb": -0.000202
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.172585,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "iteration": 10,
+      "psnrDb": 24.172422,
+      "psnrDifferenceDb": -0.000162
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.57403,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 0,
+      "psnrDb": 5.57403,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.506506,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 1,
+      "psnrDb": 7.506511,
+      "psnrDifferenceDb": 5e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.43574,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 2,
+      "psnrDb": 9.435747,
+      "psnrDifferenceDb": 7e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.361218,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 3,
+      "psnrDb": 11.361216,
+      "psnrDifferenceDb": -3e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.280254,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 4,
+      "psnrDb": 13.280237,
+      "psnrDifferenceDb": -1.7e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.188903,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 5,
+      "psnrDb": 15.188858,
+      "psnrDifferenceDb": -4.5e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.080812,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 6,
+      "psnrDb": 17.080729,
+      "psnrDifferenceDb": -8.4e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.945696,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 7,
+      "psnrDb": 18.945564,
+      "psnrDifferenceDb": -0.000132
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.76733,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 8,
+      "psnrDb": 20.767151,
+      "psnrDifferenceDb": -0.000179
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.521181,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 9,
+      "psnrDb": 22.520979,
+      "psnrDifferenceDb": -0.000202
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.172585,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "iteration": 10,
+      "psnrDb": 24.172422,
+      "psnrDifferenceDb": -0.000162
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 5.57403,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 0,
+      "psnrDb": 5.57403,
+      "psnrDifferenceDb": 0.0
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 7.506506,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 1,
+      "psnrDb": 7.506511,
+      "psnrDifferenceDb": 5e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 9.43574,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 2,
+      "psnrDb": 9.435747,
+      "psnrDifferenceDb": 7e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 11.361218,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 3,
+      "psnrDb": 11.361216,
+      "psnrDifferenceDb": -3e-06
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 13.280254,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 4,
+      "psnrDb": 13.280237,
+      "psnrDifferenceDb": -1.7e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 15.188903,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 5,
+      "psnrDb": 15.188858,
+      "psnrDifferenceDb": -4.5e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 17.080812,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 6,
+      "psnrDb": 17.080729,
+      "psnrDifferenceDb": -8.4e-05
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 18.945696,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 7,
+      "psnrDb": 18.945564,
+      "psnrDifferenceDb": -0.000132
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 20.76733,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 8,
+      "psnrDb": 20.767151,
+      "psnrDifferenceDb": -0.000179
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 22.521181,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 9,
+      "psnrDb": 22.520979,
+      "psnrDifferenceDb": -0.000202
+    },
+    {
+      "baselineGpuCount": 1,
+      "baselinePsnrDb": 24.172585,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "iteration": 10,
+      "psnrDb": 24.172422,
+      "psnrDifferenceDb": -0.000162
+    }
+  ]
+}

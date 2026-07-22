@@ -1,0 +1,198 @@
+---
+interface TableColumn {
+  key: string;
+  label: string;
+  digits?: number;
+}
+
+interface Props {
+  id: string;
+  title: string;
+  description: string;
+  values: Record<string, unknown>[];
+  spec: Record<string, unknown>;
+  note?: string;
+  tableColumns?: TableColumn[];
+}
+
+const {
+  id,
+  title,
+  description,
+  values,
+  spec,
+  note,
+  tableColumns = [],
+} = Astro.props;
+const fullSpec = { ...spec, data: { values } };
+const serializedSpec = JSON.stringify(fullSpec).replaceAll("<", "\\u003c");
+const formatCell = (value: unknown, digits?: number) => {
+  if (typeof value === "number") {
+    return new Intl.NumberFormat("en", {
+      maximumFractionDigits: digits ?? 3,
+    }).format(value);
+  }
+  return value == null ? "—" : String(value);
+};
+---
+
+<figure class="result-chart" aria-labelledby={`${id}-title`}>
+  <figcaption>
+    <span class="result-chart__index">Figure</span>
+    <h3 id={`${id}-title`}>{title}</h3>
+    <p>{description}</p>
+  </figcaption>
+  <div class="result-chart__canvas" data-result-chart>
+    <script
+      type="application/json"
+      is:inline
+      data-result-chart-spec
+      set:html={serializedSpec}
+    />
+    <p class="result-chart__loading">Loading interactive figure…</p>
+  </div>
+  {note && <p class="result-chart__note">{note}</p>}
+  {
+    tableColumns.length > 0 && (
+      <details class="result-chart__data">
+        <summary>View figure data</summary>
+        <div class="result-chart__table-scroll">
+          <table>
+            <thead>
+              <tr>
+                {tableColumns.map((column) => (
+                  <th>{column.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {values.map((row) => (
+                <tr>
+                  {tableColumns.map((column) => (
+                    <td>{formatCell(row[column.key], column.digits)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    )
+  }
+</figure>
+
+<script>
+  import vegaEmbed from "vega-embed";
+
+  const renderCharts = () => {
+    document
+      .querySelectorAll<HTMLElement>("[data-result-chart]")
+      .forEach((element) => {
+        if (element.dataset.rendered === "true") return;
+        const source = element.querySelector<HTMLScriptElement>(
+          "[data-result-chart-spec]",
+        );
+        if (!source?.textContent) return;
+        element.dataset.rendered = "true";
+        const spec = JSON.parse(source.textContent);
+        element.querySelector(".result-chart__loading")?.remove();
+        vegaEmbed(element, spec, {
+          actions: false,
+          renderer: "svg",
+        }).catch((error) => {
+          element.dataset.rendered = "false";
+          element.textContent = "The interactive figure could not be rendered.";
+          console.error(error);
+        });
+      });
+  };
+
+  renderCharts();
+  document.addEventListener("astro:page-load", renderCharts);
+</script>
+
+<style>
+  .result-chart {
+    margin: 46px 0 54px;
+    padding: 26px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: white;
+    box-shadow: 0 18px 55px rgba(16, 27, 54, 0.08);
+  }
+
+  figcaption {
+    margin-bottom: 22px;
+  }
+
+  .result-chart__index {
+    color: var(--teal);
+    font-size: 0.67rem;
+    font-weight: 800;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  figcaption h3 {
+    margin: 6px 0 7px;
+    font-family: var(--serif);
+    font-size: 1.45rem;
+    line-height: 1.25;
+  }
+
+  figcaption p,
+  .result-chart__note,
+  .result-chart__loading {
+    margin: 0;
+    color: var(--ink-600);
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    line-height: 1.55;
+  }
+
+  .result-chart__canvas {
+    min-height: 350px;
+    overflow-x: auto;
+  }
+
+  .result-chart__loading {
+    display: grid;
+    min-height: 350px;
+    place-items: center;
+  }
+
+  .result-chart__note {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .result-chart__data {
+    margin-top: 16px;
+    color: var(--ink-600);
+    font-size: 0.78rem;
+  }
+
+  .result-chart__data summary {
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  .result-chart__table-scroll {
+    overflow-x: auto;
+  }
+
+  .result-chart__data table {
+    margin: 14px 0 0;
+    font-family: var(--sans);
+    font-size: 0.72rem;
+  }
+
+  @media (max-width: 640px) {
+    .result-chart {
+      margin-inline: -6px;
+      padding: 18px 14px;
+      border-radius: 13px;
+    }
+  }
+</style>

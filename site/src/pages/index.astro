@@ -4,6 +4,7 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import SectionIntro from "../components/SectionIntro.astro";
 import "../styles/pages/home.css";
 
+const base = import.meta.env.BASE_URL;
 const findings = (
   await getCollection(
     "technicalContent",
@@ -129,21 +130,28 @@ const challenges = [
             enabling both inference and training on data for which computations
             cannot fit on a single device.
           </p>
-          <a class="button light-button" href="/distributed-solvers/"
+          <a class="button light-button" href={`${base}distributed-solvers/`}
             >Explore the computation blocks →</a
           >
         </div>
         <div class="blocks-panel">
           <div class="deepinv-lockup">
-            <div class="deepinv-logo">
-              <img src="/deepinv.png" alt="DeepInverse" />
-            </div>
+            <a
+              class="deepinv-logo"
+              href="https://deepinv.org/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Visit the DeepInverse website"
+            >
+              <img src={`${base}deepinv.png`} alt="DeepInverse" />
+            </a>
             <strong>deepinv.distributed</strong>
           </div>
           <div class="block-flow" aria-label="Distributed computation flow">
             <div class="compute-block">
-              <strong>Distributed Physics-based Update</strong
-              ><small>Forward model · Adjoint · Data-fidelity gradient</small>
+              <strong>Distributed Physics-based Update</strong><small
+                >Forward model · Adjoint · Data-fidelity gradient</small
+              >
             </div>
             <div class="iteration-loop" aria-hidden="true">
               <span>iterate</span>
@@ -177,9 +185,9 @@ const challenges = [
               </svg>
             </div>
             <div class="compute-block">
-              <strong
-                >Distributed Forward / Backward Neural Pass</strong
-              ><small>Denoiser · Regularizer · Score model</small>
+              <strong>Distributed Forward / Backward Neural Pass</strong><small
+                >Denoiser · Regularizer · Score model</small
+              >
             </div>
           </div>
         </div>
@@ -196,23 +204,31 @@ const challenges = [
           description="Built with Benchopt, the benchmark connects imaging problems, distributed solvers, and cluster execution in a configuration-based evaluation framework."
         />
         <div class="benchopt-lockup">
-          <span>Built with</span><img src="/benchopt.png" alt="Benchopt" />
+          <span>Built with</span><a
+            href="https://benchopt.github.io/"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Visit the Benchopt website"
+            ><img src={`${base}benchopt.png`} alt="Benchopt" /></a
+          >
         </div>
       </div>
       <div class="architecture-flow">
-        <a class="architecture-card" href="/use-cases/"
+        <a class="architecture-card" href={`${base}use-cases/`}
           ><div class="card-top"></div><h3>Use Cases</h3><p>
             Large-scale inverse problems where the data and reconstruction
             exceed 100 million pixels or voxels. Applications include
             high-resolution imaging, tomography, and radio interferometry.
           </p><strong>See the use cases <b>→</b></strong></a
         >
-        <a class="architecture-card dark-card" href="/distributed-solvers/"
+        <a
+          class="architecture-card dark-card"
+          href={`${base}distributed-solvers/`}
           ><div class="card-top"></div><h3>Distributed Solvers</h3><p>
             Distributed reconstruction algorithms based on deepinv.distributed.
           </p><strong>Explore the solvers <b>→</b></strong></a
         >
-        <a class="architecture-card accent-card" href="/cluster/"
+        <a class="architecture-card accent-card" href={`${base}cluster/`}
           ><div class="card-top"></div><h3>Cluster execution</h3><p>
             The benchmark is designed to run on SLURM-based clusters with
             multiple nodes and GPUs.
@@ -237,7 +253,7 @@ const challenges = [
       <div class="finding-list">
         {
           findings.map((entry, index) => (
-            <a class="finding-row" href={`/${entry.id}/`}>
+            <a class="finding-row" href={`${base}${entry.id}/`}>
               <>
                 <span class="finding-number">
                   {String(index + 1).padStart(2, "0")}
