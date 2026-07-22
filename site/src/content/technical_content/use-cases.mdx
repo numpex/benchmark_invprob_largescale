@@ -1,0 +1,195 @@
+---
+eyebrow: "Benchmark problems"
+title: "A collection of large-scale inverse problems"
+description: "Representative large-scale imaging applications implemented within a common benchmarking framework."
+landingSection: "architecture"
+---
+
+<p class="lead">
+A benchmark should not be tied to a single imaging modality. Different
+communities work with different forward models, acquisition geometries and data
+formats, yet many reconstruction algorithms share the same mathematical
+structure and face the same computational challenges when images become too
+large for a single accelerator.
+</p>
+
+<p>
+For this reason, the benchmark integrates several representative inverse
+problems within a common interface. Each use case provides an imaging
+task together with its corresponding forward model, datasets and evaluation
+protocol, while relying on the same distributed reconstruction framework.
+</p>
+
+<p>
+The current benchmark includes multi-frame super-resolution, X-ray tomography
+(in both 2D and 3D), and radio interferometric imaging. Additional applications
+can be incorporated following the same design, allowing the benchmark to evolve
+towards a broader collection of large-scale inverse problems.
+</p>
+
+| Use case                     | Unknown               | Measurements                         |
+| ---------------------------- | --------------------- | ------------------------------------ |
+| Multi-frame super-resolution | High-resolution image | Multiple low-resolution observations |
+| X-ray tomography             | 2D slice or 3D volume | Projection measurements              |
+| Radio interferometry         | Sky brightness image  | Complex Fourier visibilities         |
+
+
+## 1. Multi-frame super-resolution
+
+Multi-frame super-resolution provides a simple yet representative inverse
+problem that is easy to scale to very large image sizes. Starting from a
+high-resolution image, the benchmark generates several complementary
+low-resolution observations by applying different blur operators, followed by
+downsampling and additive noise.
+
+The acquisition model is
+
+$$
+y_k = S B_k x + n_k,\qquad k=1,\ldots,K,
+$$
+
+where $x$ is the unknown high-resolution image, $B_k$ denotes a
+frame-dependent blur, $S$ is the downsampling operator and $n_k$ is additive
+Gaussian noise.
+
+Each observation contains only part of the spatial information. The goal is to
+recover a single high-resolution image by jointly exploiting all available
+frames.
+
+The benchmark also provides a three-dimensional variant following the same
+multi-frame philosophy. In this case, several noisy observations of a synthetic
+volume are generated,
+
+$$
+y_k = x + n_k,
+$$
+
+allowing the benchmark to evaluate reconstruction methods on very large 3D
+volumes while keeping the acquisition model intentionally simple. This makes it
+possible to focus on the scalability of the reconstruction algorithm without
+introducing additional complexity from the forward model.
+
+
+## 2. X-ray tomography
+
+Tomography is one of the most widely used imaging techniques for recovering the
+interior of an object from a series of X-ray measurements acquired at different
+viewing angles. It plays a central role in medical imaging, industrial
+inspection, materials science and many other scientific applications, making it
+a natural benchmark for large-scale inverse problems.
+
+In the benchmark, the measurements are modeled as
+
+$$
+y = P_{\Theta}x + n,
+$$
+
+where $x$ denotes the unknown object, $P_{\Theta}$ is the X-ray projection
+operator associated with the acquisition geometry, and $n$ represents
+measurement noise. Reconstructing the object therefore amounts to recovering
+$x$ from a finite collection of projection images.
+
+<figure class="usecase-figure">
+  <div
+    class="tomo-flow"
+    role="img"
+    aria-label="An object is observed from multiple viewing angles to produce projection measurements used for reconstruction."
+  >
+    <div class="tomo-object">
+      <div aria-hidden="true">
+        <i></i>
+        <i></i>
+      </div>
+      <strong>Object</strong>
+      <small>Unknown slice or volume</small>
+    </div>
+    <span class="usecase-arrow" aria-hidden="true">→</span>
+    <div class="tomo-views">
+      <div class="tomo-views__ring" aria-hidden="true">
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+        <i></i>
+      </div>
+      <strong>X-ray acquisition</strong>
+      <small>Multiple projection angles</small>
+    </div>
+    <span class="usecase-arrow" aria-hidden="true">→</span>
+    <div class="tomo-shards">
+      <span><b>$y$</b><small>Projection measurements</small></span>
+    </div>
+  </div>
+  <figcaption>
+    Tomographic reconstruction recovers a single object from projection
+    measurements acquired at multiple viewing angles.
+  </figcaption>
+</figure>
+
+The benchmark currently provides two tomography problems covering both two- and
+three-dimensional reconstruction.
+
+|                | 2D Tomography         | 3D Tomography    |
+| -------------- | --------------------- | ---------------- |
+| Unknown        | Shepp–Logan phantom   | Walnut volume    |
+| Geometry       | Parallel-beam         | Cone-beam CT     |
+| Measurements   | Simulated projections | Real acquisition |
+| Implementation | ASTRA Toolbox         | ASTRA Toolbox    |
+
+The 2D benchmark is based on a resizable Shepp–Logan phantom, allowing image
+size and acquisition parameters to be varied while keeping a fully controlled
+experimental setting. It is well suited for reproducible performance studies
+and algorithmic comparisons.
+
+The 3D benchmark is based on the Walnut cone-beam CT dataset, a widely used
+reference dataset for large-scale tomographic reconstruction, with volumes of 500³ voxels.
+It combines a realistic acquisition geometry with high-resolution volumetric data, providing
+a representative large-scale reconstruction problem while remaining fully
+reproducible.
+
+Both variants share the same reconstruction interface, making it possible to
+evaluate distributed algorithms on synthetic and experimental tomography data
+without changing the reconstruction pipeline.
+
+
+## 3. Radio interferometric imaging
+
+Radio interferometry is a key imaging technique in modern astronomy, enabling
+high-resolution observations by combining the signals recorded by many
+individual antennas. Rather than measuring an image directly, an interferometer
+samples the Fourier transform of the sky brightness at a collection of
+irregularly distributed spatial frequencies. Reconstructing an image therefore
+requires solving an inverse problem from incomplete and noisy Fourier
+measurements.
+
+In the benchmark, the acquisition model is represented as
+
+$$
+y = W\mathcal{F}_{\Omega}x + n,
+$$
+
+where $x$ is the unknown sky image, $\Omega$ denotes the irregular Fourier
+sampling locations, $\mathcal{F}_{\Omega}$ is the corresponding non-uniform
+Fourier transform, $W$ contains measurement weights, and $n$ models the
+measurement noise.
+
+The benchmark relies on realistic radio astronomy datasets and simulations to
+provide representative reconstruction problems. Sky images are stored as FITS
+files, while interferometric observations are generated using the **Karabo**
+simulation framework for the **MeerKAT** telescope. The resulting Measurement
+Sets are converted into weighted non-uniform Fourier operators through the
+DeepInverse physics framework, allowing reconstruction algorithms to be
+evaluated under realistic acquisition conditions.
+
+Two image scales are currently provided, with native resolutions of **1,024 ×
+1,024** and **10,000 × 10,000** pixels. The latter corresponds to one hundred
+million image pixels, making it representative of the large-scale imaging
+problems targeted by distributed reconstruction methods.
+
+As for the other benchmark problems, the radio interferometry pipeline follows
+the same reconstruction interface, making it possible to evaluate algorithms
+consistently across very different imaging modalities while keeping the
+underlying implementation transparent to the user.

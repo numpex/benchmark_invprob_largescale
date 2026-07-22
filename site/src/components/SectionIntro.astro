@@ -1,0 +1,31 @@
+---
+import "../styles/components/section-intro.css";
+interface Props {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  align?: "left" | "center";
+  tone?: "light" | "dark";
+}
+
+const {
+  eyebrow,
+  title,
+  description,
+  align = "left",
+  tone = "light",
+} = Astro.props;
+---
+
+<div
+  class:list={[
+    "section-intro",
+    "section-intro--" + align,
+    "section-intro--" + tone,
+  ]}
+>
+  <p class="eyebrow">{eyebrow}</p>
+  <h2>{title}</h2>
+  {description && <p class="description">{description}</p>}
+  <slot />
+</div>

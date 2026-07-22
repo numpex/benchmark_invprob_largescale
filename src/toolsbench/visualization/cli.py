@@ -30,6 +30,9 @@ from toolsbench.visualization.training.strong_scaling import (
 from toolsbench.visualization.training.weak_scaling import (
     create_weak_scaling_visualizations,
 )
+from toolsbench.visualization.website.inference_scaling import (
+    create_inference_scaling_website_data,
+)
 
 TRAINING_CREATORS = {
     "strong_scaling": create_strong_scaling_visualizations,
@@ -46,6 +49,8 @@ def build_parser(command: str) -> argparse.ArgumentParser:
         return _build_inference_parser()
     if command == "viztraining":
         return _build_training_parser()
+    if command == "vizwebsite":
+        return _build_website_parser()
     raise ValueError(f"Unknown visualization command: {command}")
 
 
@@ -137,6 +142,40 @@ def _build_training_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_website_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="toolsbench vizwebsite",
+        description="Create plot-ready JSON data for benchmark finding pages.",
+    )
+    subparsers = parser.add_subparsers(dest="finding", required=True)
+    inference_scaling = subparsers.add_parser(
+        "inference_scaling",
+        aliases=["inference-scaling"],
+        help="Export distributed PnP scaling and communication data.",
+    )
+    inference_scaling.add_argument(
+        "--scaling-results",
+        required=True,
+        help="Inference strong-scaling parquet file or containing directory.",
+    )
+    inference_scaling.add_argument(
+        "--comm-2d-results",
+        required=True,
+        help="2D inference communication parquet file or containing directory.",
+    )
+    inference_scaling.add_argument(
+        "--comm-3d-results",
+        required=True,
+        help="3D inference communication parquet file or containing directory.",
+    )
+    inference_scaling.add_argument(
+        "--output-dir",
+        default="site/src/data/results",
+        help="Root directory where finding JSON data is written.",
+    )
+    return parser
+
+
 def _add_results_args(
     parser: argparse.ArgumentParser,
     default_output_dir: Path,
@@ -162,6 +201,8 @@ def main(command: str, argv: list[str] | None = None) -> int:
         output_paths = _run_inference(args, parser)
     elif command == "viztraining":
         output_paths = _run_training(args, parser)
+    elif command == "vizwebsite":
+        output_paths = _run_website(args, parser)
     else:
         parser.error(f"Unknown visualization command: {command}")
 
@@ -199,6 +240,19 @@ def _run_training(args, parser: argparse.ArgumentParser) -> list[Path]:
     if creator is None:
         parser.error(f"Unknown training experiment: {args.experiment}")
     return [creator(args.results, Path(args.output_dir))]
+
+
+def _run_website(args, parser: argparse.ArgumentParser) -> list[Path]:
+    finding = args.finding.replace("-", "_")
+    if finding == "inference_scaling":
+        return create_inference_scaling_website_data(
+            scaling_results=args.scaling_results,
+            comm_2d_results=args.comm_2d_results,
+            comm_3d_results=args.comm_3d_results,
+            output_dir=Path(args.output_dir),
+        )
+    parser.error(f"Unknown website finding: {args.finding}")
+    return []
 
 
 def _run_all_training(results_dir: Path, output_dir: Path) -> list[Path]:

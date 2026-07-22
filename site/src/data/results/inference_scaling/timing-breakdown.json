@@ -1,0 +1,222 @@
+{
+  "id": "inference-scaling-timing-breakdown",
+  "methodology": {
+    "aggregation": "mean over iterations 3-10 within one benchmark run; iterations 1-2 excluded",
+    "independentRepetitions": 1,
+    "overheadDefinition": "total iteration minus physics and denoising wall time",
+    "timingEndIteration": 10,
+    "timingStartIteration": 3
+  },
+  "provenance": {
+    "accelerator": "Tesla V100-SXM2-32GB: cuda_13.0",
+    "benchmarkGitTag": null,
+    "config": "benchmark_inference/configs/experiments/strong_scaling_inference.yml",
+    "platform": "Linux",
+    "runDate": "2026-06-30T09:44:33.899207",
+    "source": "result_benchmark/benchmark_inference/scaling/benchopt_run_2026-06-30_09h44m33.parquet",
+    "sourceSha256": "08bcca046f824754f8ad7942f89a0e8398cd9ce3c936746d10732ebe2b5e0414"
+  },
+  "schemaVersion": 1,
+  "values": [
+    {
+      "denoisingSec": 0.878199,
+      "gpuCount": 1,
+      "imageSize": 2048,
+      "mode": "non-distributed",
+      "overheadSec": 0.016355,
+      "physicsSec": 0.016797,
+      "totalSec": 0.911351,
+      "workMultiplier": 1.0
+    },
+    {
+      "denoisingSec": 0.660762,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "mode": "distributed",
+      "overheadSec": 0.016509,
+      "physicsSec": 0.010883,
+      "totalSec": 0.688154,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.373742,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "mode": "distributed",
+      "overheadSec": 0.016231,
+      "physicsSec": 0.005918,
+      "totalSec": 0.395891,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.217786,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "mode": "distributed",
+      "overheadSec": 0.016469,
+      "physicsSec": 0.006536,
+      "totalSec": 0.240791,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.117569,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "mode": "distributed",
+      "overheadSec": 0.016325,
+      "physicsSec": 0.012912,
+      "totalSec": 0.146806,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.064715,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "mode": "distributed",
+      "overheadSec": 0.016183,
+      "physicsSec": 0.012299,
+      "totalSec": 0.093197,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.064808,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "mode": "distributed",
+      "overheadSec": 0.015913,
+      "physicsSec": 0.013314,
+      "totalSec": 0.094035,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 3.535838,
+      "gpuCount": 1,
+      "imageSize": 4096,
+      "mode": "non-distributed",
+      "overheadSec": 0.061658,
+      "physicsSec": 0.06267,
+      "totalSec": 3.660166,
+      "workMultiplier": 1.0
+    },
+    {
+      "denoisingSec": 2.815268,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "mode": "distributed",
+      "overheadSec": 0.061845,
+      "physicsSec": 0.039925,
+      "totalSec": 2.917038,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 1.39089,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "mode": "distributed",
+      "overheadSec": 0.063233,
+      "physicsSec": 0.021485,
+      "totalSec": 1.475608,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.673998,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "mode": "distributed",
+      "overheadSec": 0.062522,
+      "physicsSec": 0.022596,
+      "totalSec": 0.759116,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.410905,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "mode": "distributed",
+      "overheadSec": 0.06186,
+      "physicsSec": 0.051318,
+      "totalSec": 0.524083,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.249897,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "mode": "distributed",
+      "overheadSec": 0.061766,
+      "physicsSec": 0.051635,
+      "totalSec": 0.363298,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 0.149622,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "mode": "distributed",
+      "overheadSec": 0.061336,
+      "physicsSec": 0.050741,
+      "totalSec": 0.261699,
+      "workMultiplier": 1.5625
+    },
+    {
+      "denoisingSec": 9.170488,
+      "gpuCount": 2,
+      "imageSize": 8192,
+      "mode": "distributed",
+      "overheadSec": 0.240135,
+      "physicsSec": 0.156254,
+      "totalSec": 9.566877,
+      "workMultiplier": 1.410156
+    },
+    {
+      "denoisingSec": 4.689801,
+      "gpuCount": 4,
+      "imageSize": 8192,
+      "mode": "distributed",
+      "overheadSec": 0.242733,
+      "physicsSec": 0.084178,
+      "totalSec": 5.016712,
+      "workMultiplier": 1.410156
+    },
+    {
+      "denoisingSec": 2.407433,
+      "gpuCount": 8,
+      "imageSize": 8192,
+      "mode": "distributed",
+      "overheadSec": 0.246657,
+      "physicsSec": 0.085456,
+      "totalSec": 2.739546,
+      "workMultiplier": 1.410156
+    },
+    {
+      "denoisingSec": 1.414494,
+      "gpuCount": 16,
+      "imageSize": 8192,
+      "mode": "distributed",
+      "overheadSec": 0.240103,
+      "physicsSec": 0.186423,
+      "totalSec": 1.84102,
+      "workMultiplier": 1.410156
+    },
+    {
+      "denoisingSec": 0.773578,
+      "gpuCount": 32,
+      "imageSize": 8192,
+      "mode": "distributed",
+      "overheadSec": 0.241311,
+      "physicsSec": 0.191835,
+      "totalSec": 1.206724,
+      "workMultiplier": 1.410156
+    },
+    {
+      "denoisingSec": 0.491078,
+      "gpuCount": 64,
+      "imageSize": 8192,
+      "mode": "distributed",
+      "overheadSec": 0.239891,
+      "physicsSec": 0.19634,
+      "totalSec": 0.927309,
+      "workMultiplier": 1.410156
+    }
+  ]
+}

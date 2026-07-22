@@ -1,0 +1,243 @@
+{
+  "id": "inference-scaling-efficiency",
+  "methodology": {
+    "absoluteEfficiency": "(baseline time / time) * (baseline GPUs / GPUs)",
+    "independentRepetitions": 1,
+    "overlapRadius": 32,
+    "patchSize": 448,
+    "tileWork": "number of halo-padded denoiser tiles times tile area; the non-distributed full-image baseline has multiplier 1",
+    "workNormalizedEfficiency": "absolute efficiency * current work multiplier / baseline work multiplier"
+  },
+  "provenance": {
+    "accelerator": "Tesla V100-SXM2-32GB: cuda_13.0",
+    "benchmarkGitTag": null,
+    "config": "benchmark_inference/configs/experiments/strong_scaling_inference.yml",
+    "platform": "Linux",
+    "runDate": "2026-06-30T09:44:33.899207",
+    "source": "result_benchmark/benchmark_inference/scaling/benchopt_run_2026-06-30_09h44m33.parquet",
+    "sourceSha256": "08bcca046f824754f8ad7942f89a0e8398cd9ce3c936746d10732ebe2b5e0414"
+  },
+  "schemaVersion": 1,
+  "values": [
+    {
+      "absoluteEfficiencyPct": 100.0,
+      "baselineGpuCount": 1,
+      "gpuCount": 1,
+      "imageSize": 2048,
+      "speedup": 1.0,
+      "totalSec": 0.911351,
+      "usefulComputePct": 100.0,
+      "workMultiplier": 1.0,
+      "workNormalizedEfficiencyPct": 100.0
+    },
+    {
+      "absoluteEfficiencyPct": 66.217118,
+      "baselineGpuCount": 1,
+      "gpuCount": 2,
+      "imageSize": 2048,
+      "speedup": 1.324342,
+      "totalSec": 0.688154,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 103.464248
+    },
+    {
+      "absoluteEfficiencyPct": 57.550712,
+      "baselineGpuCount": 1,
+      "gpuCount": 4,
+      "imageSize": 2048,
+      "speedup": 2.302028,
+      "totalSec": 0.395891,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 89.922988
+    },
+    {
+      "absoluteEfficiencyPct": 47.310302,
+      "baselineGpuCount": 1,
+      "gpuCount": 8,
+      "imageSize": 2048,
+      "speedup": 3.784824,
+      "totalSec": 0.240791,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 73.922347
+    },
+    {
+      "absoluteEfficiencyPct": 38.799053,
+      "baselineGpuCount": 1,
+      "gpuCount": 16,
+      "imageSize": 2048,
+      "speedup": 6.207849,
+      "totalSec": 0.146806,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 60.623521
+    },
+    {
+      "absoluteEfficiencyPct": 30.558523,
+      "baselineGpuCount": 1,
+      "gpuCount": 32,
+      "imageSize": 2048,
+      "speedup": 9.778727,
+      "totalSec": 0.093197,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 47.747692
+    },
+    {
+      "absoluteEfficiencyPct": 15.143099,
+      "baselineGpuCount": 1,
+      "gpuCount": 64,
+      "imageSize": 2048,
+      "speedup": 9.691583,
+      "totalSec": 0.094035,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 23.661092
+    },
+    {
+      "absoluteEfficiencyPct": 100.0,
+      "baselineGpuCount": 1,
+      "gpuCount": 1,
+      "imageSize": 4096,
+      "speedup": 1.0,
+      "totalSec": 3.660166,
+      "usefulComputePct": 100.0,
+      "workMultiplier": 1.0,
+      "workNormalizedEfficiencyPct": 100.0
+    },
+    {
+      "absoluteEfficiencyPct": 62.737729,
+      "baselineGpuCount": 1,
+      "gpuCount": 2,
+      "imageSize": 4096,
+      "speedup": 1.254755,
+      "totalSec": 2.917038,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 98.027701
+    },
+    {
+      "absoluteEfficiencyPct": 62.011137,
+      "baselineGpuCount": 1,
+      "gpuCount": 4,
+      "imageSize": 4096,
+      "speedup": 2.480445,
+      "totalSec": 1.475608,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 96.892401
+    },
+    {
+      "absoluteEfficiencyPct": 60.270237,
+      "baselineGpuCount": 1,
+      "gpuCount": 8,
+      "imageSize": 4096,
+      "speedup": 4.821619,
+      "totalSec": 0.759116,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 94.172246
+    },
+    {
+      "absoluteEfficiencyPct": 43.649626,
+      "baselineGpuCount": 1,
+      "gpuCount": 16,
+      "imageSize": 4096,
+      "speedup": 6.98394,
+      "totalSec": 0.524083,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 68.202541
+    },
+    {
+      "absoluteEfficiencyPct": 31.483822,
+      "baselineGpuCount": 1,
+      "gpuCount": 32,
+      "imageSize": 4096,
+      "speedup": 10.074823,
+      "totalSec": 0.363298,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 49.193472
+    },
+    {
+      "absoluteEfficiencyPct": 21.853407,
+      "baselineGpuCount": 1,
+      "gpuCount": 64,
+      "imageSize": 4096,
+      "speedup": 13.986181,
+      "totalSec": 0.261699,
+      "usefulComputePct": 64.0,
+      "workMultiplier": 1.5625,
+      "workNormalizedEfficiencyPct": 34.145949
+    },
+    {
+      "absoluteEfficiencyPct": 100.0,
+      "baselineGpuCount": 2,
+      "gpuCount": 2,
+      "imageSize": 8192,
+      "speedup": 1.0,
+      "totalSec": 9.566877,
+      "usefulComputePct": 70.914127,
+      "workMultiplier": 1.410156,
+      "workNormalizedEfficiencyPct": 100.0
+    },
+    {
+      "absoluteEfficiencyPct": 95.350074,
+      "baselineGpuCount": 2,
+      "gpuCount": 4,
+      "imageSize": 8192,
+      "speedup": 1.907001,
+      "totalSec": 5.016712,
+      "usefulComputePct": 70.914127,
+      "workMultiplier": 1.410156,
+      "workNormalizedEfficiencyPct": 95.350074
+    },
+    {
+      "absoluteEfficiencyPct": 87.303503,
+      "baselineGpuCount": 2,
+      "gpuCount": 8,
+      "imageSize": 8192,
+      "speedup": 3.49214,
+      "totalSec": 2.739546,
+      "usefulComputePct": 70.914127,
+      "workMultiplier": 1.410156,
+      "workNormalizedEfficiencyPct": 87.303503
+    },
+    {
+      "absoluteEfficiencyPct": 64.956359,
+      "baselineGpuCount": 2,
+      "gpuCount": 16,
+      "imageSize": 8192,
+      "speedup": 5.196509,
+      "totalSec": 1.84102,
+      "usefulComputePct": 70.914127,
+      "workMultiplier": 1.410156,
+      "workNormalizedEfficiencyPct": 64.956359
+    },
+    {
+      "absoluteEfficiencyPct": 49.549853,
+      "baselineGpuCount": 2,
+      "gpuCount": 32,
+      "imageSize": 8192,
+      "speedup": 7.927976,
+      "totalSec": 1.206724,
+      "usefulComputePct": 70.914127,
+      "workMultiplier": 1.410156,
+      "workNormalizedEfficiencyPct": 49.549853
+    },
+    {
+      "absoluteEfficiencyPct": 32.240064,
+      "baselineGpuCount": 2,
+      "gpuCount": 64,
+      "imageSize": 8192,
+      "speedup": 10.31682,
+      "totalSec": 0.927309,
+      "usefulComputePct": 70.914127,
+      "workMultiplier": 1.410156,
+      "workNormalizedEfficiencyPct": 32.240064
+    }
+  ]
+}

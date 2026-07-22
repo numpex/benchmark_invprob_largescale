@@ -1,0 +1,60 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import "../styles/layouts/technical-content.css";
+
+interface Props {
+  title: string;
+  description: string;
+  eyebrow: string;
+  publishedAt?: Date;
+  readingTime?: string;
+  landingSection?: "distributed" | "architecture" | "findings";
+}
+
+const {
+  title,
+  description,
+  eyebrow,
+  publishedAt,
+  readingTime,
+  landingSection,
+} = Astro.props;
+const date = publishedAt
+  ? new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(publishedAt)
+  : undefined;
+const base = import.meta.env.BASE_URL;
+const landingLinks = {
+  distributed: { href: `${base}#distributed`, label: "Distributed solvers" },
+  architecture: { href: `${base}#architecture`, label: "Benchmark" },
+  findings: { href: `${base}#findings`, label: "Results" },
+};
+const backLink = landingSection
+  ? landingLinks[landingSection]
+  : { href: base, label: "Benchmark overview" };
+---
+
+<BaseLayout
+  title={`${title} — Inverse Problems at Scale`}
+  description={description}
+>
+  <header class="technical-hero">
+    <div class="container technical-width">
+      <a href={backLink.href} class="back">← {backLink.label}</a>
+      <p class="eyebrow">{eyebrow}</p>
+      <h1>{title}</h1>
+      <p class="description">{description}</p>
+      {
+        date && (
+          <div class="meta">
+            <span>{date}</span>
+            {readingTime && <span>{readingTime}</span>}
+            <span>NumPEx benchmark team</span>
+          </div>
+        )
+      }
+    </div>
+  </header>
+  <article class="container technical-width technical-body">
+    <slot />
+  </article>
+</BaseLayout>

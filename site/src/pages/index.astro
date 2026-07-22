@@ -1,0 +1,276 @@
+---
+import { getCollection } from "astro:content";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import SectionIntro from "../components/SectionIntro.astro";
+import "../styles/pages/home.css";
+
+const base = import.meta.env.BASE_URL;
+const findings = (
+  await getCollection(
+    "technicalContent",
+    ({ id }) => id.startsWith("findings/") && id !== "findings/index",
+  )
+).sort(
+  (a, b) =>
+    (b.data.publishedAt?.valueOf() ?? 0) - (a.data.publishedAt?.valueOf() ?? 0),
+);
+const challenges = [
+  [
+    [
+      "Does reconstruction quality degrade?",
+      "PSNR, SSIM, and scientific fidelity at scale with respect to single-GPU baselines.",
+    ],
+    ["How does runtime scale?", "Strong and weak scaling behaviors"],
+  ],
+  [
+    [
+      "Must learned priors be trained at full scale, or is patch-based training sufficient?",
+      "Optimal training strategies for large-scale problems, including patch-based training and distributed training.",
+    ],
+    ["Where is the bottleneck?", "Compute, communication, memory."],
+  ],
+  [
+    [
+      "What overlap is required?",
+      "Reconstruction quality vs runtime tradeoff to avoid artifacts at patch boundaries.",
+    ],
+    [
+      "Are GPUs efficiently utilized?",
+      "Memory pressure, load balancing, and communication overhead.",
+    ],
+  ],
+];
+---
+
+<BaseLayout
+  title="Benchmarking Large-Scale Inverse Problem Solvers"
+  description="A reproducible benchmark for deep learning based reconstruction algorithms on images and volumes exceeding 100 million pixels."
+>
+  <section class="hero">
+    <div class="container hero-inner">
+      <h1>Scaling inverse problem solvers<br /><em>beyond a single GPU</em></h1>
+      <p>
+        Modern inverse problem solvers deliver impressive reconstruction
+        quality—but most are designed for problems that fit on a single GPU. We
+        develop and benchmark distributed methods for images and volumes
+        containing hundreds of millions to billions of pixels or voxels.
+      </p>
+    </div>
+  </section>
+
+  <section id="motivation" class="motivation">
+    <div class="container motivation-lead">
+      <SectionIntro
+        eyebrow="The challenge"
+        title="Pushing the limits of scale for imaging inverse problems"
+        align="center"
+      />
+      <div class="motivation-copy">
+        <p>
+          State-of-the-art imaging inverse problem solvers increasingly combine
+          physics-based models with learned priors. Yet nearly all are designed
+          and evaluated on small-scale datasets, where the entire computation
+          fits on a single GPU.
+        </p>
+        <p>
+          At scales of hundreds of millions to billions of pixels or voxels,
+          this assumption breaks down. Memory limits and computation time become
+          central challenges, fundamentally changing how these algorithms must
+          be designed and executed.
+        </p>
+      </div>
+    </div>
+    <div class="container challenge-wrap">
+      <div class="challenge-heading">
+        <span
+          >Scaling inverse problem solvers is simultaneously a science and an
+          engineering problem.</span
+        >
+      </div>
+      <table>
+        <thead
+          ><tr
+            ><th><span>01</span> ML &amp; modeling challenges</th><th
+              ><span>02</span> Systems &amp; engineering challenges</th
+            ></tr
+          ></thead
+        >
+        <tbody
+          >{
+            challenges.map((row) => (
+              <tr>
+                {row.map((cell) => (
+                  <td>
+                    <strong>{cell[0]}</strong>
+                    <p>{cell[1]}</p>
+                  </td>
+                ))}
+              </tr>
+            ))
+          }</tbody
+        >
+      </table>
+    </div>
+  </section>
+
+  <section id="distributed" class="distributed">
+    <div class="container">
+      <div class="distributed-heading">
+        <p class="eyebrow">The distributed solvers</p>
+        <h2>
+          Distributed components for large-scale reconstruction with DeepInverse
+        </h2>
+      </div>
+      <div class="distributed-grid">
+        <div class="distributed-copy">
+          <p>
+            Modern inverse problem solvers repeatedly alternate between
+            physics-based updates and neural-network evaluations. DeepInverse
+            distributes these core operations across multiple GPUs and nodes,
+            enabling both inference and training on data for which computations
+            cannot fit on a single device.
+          </p>
+          <a class="button light-button" href={`${base}distributed-solvers/`}
+            >Explore the computation blocks →</a
+          >
+        </div>
+        <div class="blocks-panel">
+          <div class="deepinv-lockup">
+            <a
+              class="deepinv-logo"
+              href="https://deepinv.org/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Visit the DeepInverse website"
+            >
+              <img src={`${base}deepinv.png`} alt="DeepInverse" />
+            </a>
+            <strong>deepinv.distributed</strong>
+          </div>
+          <div class="block-flow" aria-label="Distributed computation flow">
+            <div class="compute-block">
+              <strong>Distributed Physics-based Update</strong><small
+                >Forward model · Adjoint · Data-fidelity gradient</small
+              >
+            </div>
+            <div class="iteration-loop" aria-hidden="true">
+              <span>iterate</span>
+              <svg viewBox="0 0 120 74">
+                <defs>
+                  <marker
+                    id="arrow-forward"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"><path d="M0 0 8 4 0 8Z"></path></marker
+                  >
+                  <marker
+                    id="arrow-back"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"><path d="M0 0 8 4 0 8Z"></path></marker
+                  >
+                </defs>
+                <path
+                  class="forward"
+                  d="M4 22 C34 5 85 5 116 22"
+                  marker-end="url(#arrow-forward)"></path>
+                <path
+                  class="back"
+                  d="M116 52 C84 69 34 69 4 52"
+                  marker-end="url(#arrow-back)"></path>
+              </svg>
+            </div>
+            <div class="compute-block">
+              <strong>Distributed Forward / Backward Neural Pass</strong><small
+                >Denoiser · Regularizer · Score model</small
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture" class="architecture">
+    <div class="container">
+      <div class="architecture-head">
+        <SectionIntro
+          eyebrow="The benchmark"
+          title="A reproducible benchmark for quality and scalability"
+          description="Built with Benchopt, the benchmark connects imaging problems, distributed solvers, and cluster execution in a configuration-based evaluation framework."
+        />
+        <div class="benchopt-lockup">
+          <span>Built with</span><a
+            href="https://benchopt.github.io/"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Visit the Benchopt website"
+            ><img src={`${base}benchopt.png`} alt="Benchopt" /></a
+          >
+        </div>
+      </div>
+      <div class="architecture-flow">
+        <a class="architecture-card" href={`${base}use-cases/`}
+          ><div class="card-top"></div><h3>Use Cases</h3><p>
+            Large-scale inverse problems where the data and reconstruction
+            exceed 100 million pixels or voxels. Applications include
+            high-resolution imaging, tomography, and radio interferometry.
+          </p><strong>See the use cases <b>→</b></strong></a
+        >
+        <a
+          class="architecture-card dark-card"
+          href={`${base}distributed-solvers/`}
+          ><div class="card-top"></div><h3>Distributed Solvers</h3><p>
+            Distributed reconstruction algorithms based on deepinv.distributed.
+          </p><strong>Explore the solvers <b>→</b></strong></a
+        >
+        <a class="architecture-card accent-card" href={`${base}cluster/`}
+          ><div class="card-top"></div><h3>Cluster execution</h3><p>
+            The benchmark is designed to run on SLURM-based clusters with
+            multiple nodes and GPUs.
+          </p><strong>See the setup <b>→</b></strong></a
+        >
+      </div>
+    </div>
+  </section>
+
+  <section id="findings" class="findings-section">
+    <div class="container">
+      <div class="findings-head">
+        <SectionIntro
+          eyebrow="The results"
+          title="What scales, what breaks, and why"
+          description="Our insights from large-scale experiments."
+        />
+        <span class="note-count"
+          >{findings.length} {findings.length === 1 ? "note" : "notes"}</span
+        >
+      </div>
+      <div class="finding-list">
+        {
+          findings.map((entry, index) => (
+            <a class="finding-row" href={`${base}${entry.id}/`}>
+              <>
+                <span class="finding-number">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <>
+                    <small>{entry.data.eyebrow}</small>
+                    <h3>{entry.data.title}</h3>
+                  </>
+                </div>
+                <p>{entry.data.description}</p>
+                <b>→</b>
+              </>
+            </a>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+</BaseLayout>

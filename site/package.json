@@ -1,0 +1,26 @@
+{
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "prettier": "^3.9.5",
+    "prettier-plugin-astro": "^0.14.1",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "^7.2.1",
+    "@astrojs/mdx": "^7.0.3",
+    "@astrojs/sitemap": "^3.7.3",
+    "astro": "^7.1.1",
+    "katex": "^0.18.1",
+    "rehype-katex": "^7.0.1",
+    "remark-math": "^6.0.0",
+    "vega": "^6.3.1",
+    "vega-embed": "^7.1.0",
+    "vega-lite": "^6.4.3"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  }
+}

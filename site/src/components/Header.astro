@@ -1,0 +1,49 @@
+---
+import "../styles/components/header.css";
+const base = import.meta.env.BASE_URL;
+const nav = [
+  { label: "Motivation", href: `${base}#motivation` },
+  { label: "Distributed solvers", href: `${base}#distributed` },
+  { label: "Benchmark", href: `${base}#architecture` },
+  { label: "Results", href: `${base}#findings` },
+];
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <div class="brand">
+      <a
+        class="brand-logo"
+        href="https://numpex.org/"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="Visit the NumPEx website"
+      >
+        <img class="numpex-logo" src={`${base}logo_numpex.png`} alt="NumPEx" />
+      </a>
+      <a
+        class="brand-copy"
+        href={base}
+        aria-label="Inverse Problems Benchmark home"
+      >
+        <b>Inverse Problems</b><small>at scale</small>
+      </a>
+    </div>
+    <nav aria-label="Main navigation">
+      {nav.map((item) => <a href={item.href}>{item.label}</a>)}
+    </nav>
+    <div class="header-actions">
+      <a class="docs-link" href={`${base}documentation/`}>Documentation</a>
+      <a
+        class="source-link"
+        href="https://github.com/numpex/benchmark_invprob_largescale"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="View the benchmark source code on GitHub"
+      >
+        <img src={`${base}github.png`} alt="" />
+        <span>Source</span>
+      </a>
+    </div>
+  </div>
+</header>

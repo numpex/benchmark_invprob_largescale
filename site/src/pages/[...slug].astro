@@ -1,0 +1,39 @@
+---
+import { getCollection, render, type CollectionEntry } from "astro:content";
+import FindingsList from "../components/FindingsList.astro";
+import TechnicalContentLayout from "../layouts/TechnicalContentLayout.astro";
+
+export async function getStaticPaths() {
+  const pages = await getCollection("technicalContent");
+
+  return pages.map((entry) => ({
+    params: { slug: entry.id.replace(/\/index$/, "") },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: CollectionEntry<"technicalContent">;
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const findings =
+  entry.data.pageType === "listing"
+    ? (
+        await getCollection(
+          "technicalContent",
+          ({ id }) => id.startsWith("findings/") && id !== "findings/index",
+        )
+      ).sort(
+        (a, b) =>
+          (b.data.publishedAt?.valueOf() ?? 0) -
+          (a.data.publishedAt?.valueOf() ?? 0),
+      )
+    : [];
+---
+
+<TechnicalContentLayout {...entry.data}>
+  <Content />
+  {entry.data.pageType === "listing" && <FindingsList findings={findings} />}
+</TechnicalContentLayout>
