@@ -220,3 +220,4 @@ node_modules/
 package-lock.json
 !site/package-lock.json
 site/.astro/
+!site/src/lib
