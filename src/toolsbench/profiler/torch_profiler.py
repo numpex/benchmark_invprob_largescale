@@ -30,6 +30,7 @@ and everything below is built on top of these:
 All times from torch are in MICROSECONDS; we divide by 1e6 for seconds and
 memory by 1024**2 for MB.
 """
+
 from __future__ import annotations
 
 import os
@@ -43,12 +44,16 @@ import torch
 
 from toolsbench.profiler.base import BenchProfiler
 
-
 # Substrings that identify distributed communication ops (NCCL, Gloo, c10d).
 _COMM_SUBSTRINGS = (
-    "c10d::", "nccl",
-    "all_gather", "all_reduce", "allgather", "allreduce",
-    "gloo::", "broadcast",
+    "c10d::",
+    "nccl",
+    "all_gather",
+    "all_reduce",
+    "allgather",
+    "allreduce",
+    "gloo::",
+    "broadcast",
 )
 
 
@@ -72,22 +77,32 @@ def _group_by_key(avgs):
     For tiled user sections (not comm ops), divide CUDA-view device_time by count to
     recover per-call wall time. For comm ops, keep raw total (count = distinct tensors).
     """
-    grouped = defaultdict(lambda: {"cpu_time": 0.0, "dev_time": 0.0, "_cuda_dev": None, "count": 0, "is_user": False})
+    grouped = defaultdict(
+        lambda: {
+            "cpu_time": 0.0,
+            "dev_time": 0.0,
+            "_cuda_dev": None,
+            "count": 0,
+            "is_user": False,
+        }
+    )
     for evt in avgs:
         g = grouped[evt.key]
         g["is_user"] = g["is_user"] or evt.is_user_annotation
-        g["count"]   = max(g["count"], evt.count)
-        if evt.cpu_time_total > 0:          # CPU-view
+        g["count"] = max(g["count"], evt.count)
+        if evt.cpu_time_total > 0:  # CPU-view
             g["cpu_time"] = evt.cpu_time_total
-            g["dev_time"] = evt.device_time_total                        # fallback if no CUDA-view
+            g["dev_time"] = evt.device_time_total  # fallback if no CUDA-view
         elif evt.is_user_annotation and not _is_comm_op(evt.key) and evt.count > 0:
-            g["_cuda_dev"] = evt.device_time_total / evt.count           # tiled section: per-call
+            g["_cuda_dev"] = (
+                evt.device_time_total / evt.count
+            )  # tiled section: per-call
         else:
-            g["_cuda_dev"] = evt.device_time_total                       # comm / non-user: total
+            g["_cuda_dev"] = evt.device_time_total  # comm / non-user: total
     for g in grouped.values():
         cuda_dev = g.pop("_cuda_dev")
         if cuda_dev is not None:
-            g["dev_time"] = cuda_dev        # CUDA-view wins over CPU-view fallback
+            g["dev_time"] = cuda_dev  # CUDA-view wins over CPU-view fallback
     return grouped
 
 
@@ -135,7 +150,7 @@ def _section_summary(avgs, events=None) -> dict:
         if g["is_user"] and not _is_comm_op(key):
             # user-annotated section (gradient, denoise, ...): emit cuda/cpu time
             out[f"{key}_cuda_sec"] = round(g["dev_time"] / 1e6, 6)
-            out[f"{key}_cpu_sec"]  = round(g["cpu_time"] / 1e6, 6)
+            out[f"{key}_cpu_sec"] = round(g["cpu_time"] / 1e6, 6)
             section_names.append(key)
         elif _is_comm_op(key) and g["is_user"]:
             # all NCCL kernels in the cycle, in or out of sections; is_user=True
@@ -170,15 +185,21 @@ def _collect_op_rows(events) -> dict:
         for ch in children:
             slot = agg.setdefault(
                 (e.key, ch.key),
-                {"cpu_sec": 0.0, "cuda_sec": 0.0, "self_cuda_sec": 0.0,
-                 "mem_mb": 0.0, "self_mem_mb": 0.0, "count": 0},
+                {
+                    "cpu_sec": 0.0,
+                    "cuda_sec": 0.0,
+                    "self_cuda_sec": 0.0,
+                    "mem_mb": 0.0,
+                    "self_mem_mb": 0.0,
+                    "count": 0,
+                },
             )
-            slot["cpu_sec"]       += ch.cpu_time_total / 1e6
-            slot["cuda_sec"]      += ch.device_time_total / 1e6
+            slot["cpu_sec"] += ch.cpu_time_total / 1e6
+            slot["cuda_sec"] += ch.device_time_total / 1e6
             slot["self_cuda_sec"] += ch.self_device_time_total / 1e6
-            slot["mem_mb"]        += ch.device_memory_usage / 1024**2
-            slot["self_mem_mb"]   += ch.self_device_memory_usage / 1024**2
-            slot["count"]         += ch.count
+            slot["mem_mb"] += ch.device_memory_usage / 1024**2
+            slot["self_mem_mb"] += ch.self_device_memory_usage / 1024**2
+            slot["count"] += ch.count
     return agg
 
 
@@ -186,10 +207,14 @@ def _op_rows_to_records(agg: dict, iter_label) -> list[dict]:
     """Convert _collect_op_rows output to tidy CSV rows tagged with iter_label."""
     return [
         {
-            "iter": iter_label, "section": section, "op": op,
-            "cpu_sec": round(g["cpu_sec"], 6), "cuda_sec": round(g["cuda_sec"], 6),
+            "iter": iter_label,
+            "section": section,
+            "op": op,
+            "cpu_sec": round(g["cpu_sec"], 6),
+            "cuda_sec": round(g["cuda_sec"], 6),
             "self_cuda_sec": round(g["self_cuda_sec"], 6),
-            "mem_mb": round(g["mem_mb"], 4), "self_mem_mb": round(g["self_mem_mb"], 4),
+            "mem_mb": round(g["mem_mb"], 4),
+            "self_mem_mb": round(g["self_mem_mb"], 4),
             "count": g["count"],
         }
         for (section, op), g in agg.items()
@@ -252,14 +277,24 @@ class TorchProfiler(BenchProfiler):
     device, name, warmup, active, trace_dir, per_step, repeat : see create_profiler().
     """
 
-    def __init__(self, device, name: str, warmup: int = 0, active: int = 0,
-                 trace_dir: str | None = None, per_step: bool = True, repeat: int = 1,
-                 save_file: bool = False):
+    def __init__(
+        self,
+        device,
+        name: str,
+        warmup: int = 0,
+        active: int = 0,
+        trace_dir: str | None = None,
+        per_step: bool = True,
+        repeat: int = 1,
+        save_file: bool = False,
+    ):
         self._device = torch.device(device) if isinstance(device, str) else device
         self._name = name
         self._warmup = warmup
         self._active = active
-        self._trace_dir = None if (trace_dir is None or trace_dir == "None") else trace_dir
+        self._trace_dir = (
+            None if (trace_dir is None or trace_dir == "None") else trace_dir
+        )
         self._per_step = per_step
         self._repeat = repeat
         self._save_file = save_file
@@ -304,11 +339,18 @@ class TorchProfiler(BenchProfiler):
         else:
             # torch schedule owns warmup/active; active=0 in our API means "all remaining"
             active = self._active if self._active > 0 else 10**9
-            sched = torch.profiler.schedule(wait=0, warmup=self._warmup, active=active, repeat=self._repeat)
+            sched = torch.profiler.schedule(
+                wait=0, warmup=self._warmup, active=active, repeat=self._repeat
+            )
             on_ready = None
         self._prof = torch.profiler.profile(
-            activities=activities, schedule=sched, on_trace_ready=on_ready,
-            profile_memory=True, record_shapes=False, with_stack=False, with_flops=False,
+            activities=activities,
+            schedule=sched,
+            on_trace_ready=on_ready,
+            profile_memory=True,
+            record_shapes=False,
+            with_stack=False,
+            with_flops=False,
         )
         if self._has_cuda:
             torch.cuda.reset_peak_memory_stats(self._device)
@@ -343,8 +385,10 @@ class TorchProfiler(BenchProfiler):
         thread so its ops nest under this annotation (free for one GPU per process).
         """
         if name in self._SINGLE_THREAD_SECTIONS:
-            with torch.autograd.set_multithreading_enabled(False), \
-                    torch.profiler.record_function(name):
+            with (
+                torch.autograd.set_multithreading_enabled(False),
+                torch.profiler.record_function(name),
+            ):
                 yield
         else:
             with torch.profiler.record_function(name):
@@ -355,19 +399,29 @@ class TorchProfiler(BenchProfiler):
         if self._has_cuda:
             torch.cuda.synchronize(self._device)
         total_time_sec = time.perf_counter() - self._iter_t0
-        max_gpu = torch.cuda.max_memory_allocated(self._device) / 1024**2 if self._has_cuda else 0.0
+        max_gpu = (
+            torch.cuda.max_memory_allocated(self._device) / 1024**2
+            if self._has_cuda
+            else 0.0
+        )
 
         # step() closes the current profiler cycle; for per_step=True this fires
         # on_trace_ready, which populates _pending_summary and _pending_ops
         if self._started and not self._stopped:
             self._prof.step()
 
-        if self._warmup <= self._iter_count and \
-                (self._active == 0 or self._iter_count < self._warmup + self._active):
-            base = {"total_time_sec": round(total_time_sec, 6), "max_gpu_mb": round(max_gpu, 1)}
+        if self._warmup <= self._iter_count and (
+            self._active == 0 or self._iter_count < self._warmup + self._active
+        ):
+            base = {
+                "total_time_sec": round(total_time_sec, 6),
+                "max_gpu_mb": round(max_gpu, 1),
+            }
             if self._per_step:
                 base.update(self._pending_summary)
-                self._all_op_rows.extend(_op_rows_to_records(self._pending_ops, self._iter_count))
+                self._all_op_rows.extend(
+                    _op_rows_to_records(self._pending_ops, self._iter_count)
+                )
             self._current_metrics = base
 
         self._pending_summary = {}
@@ -382,8 +436,12 @@ class TorchProfiler(BenchProfiler):
             if not self._started and self._iter_count >= self._warmup:
                 self._start_profiler()
             # stop after the active window so remaining iters run unprofiled
-            elif self._active > 0 and self._started and not self._stopped \
-                    and self._iter_count >= self._warmup + self._active:
+            elif (
+                self._active > 0
+                and self._started
+                and not self._stopped
+                and self._iter_count >= self._warmup + self._active
+            ):
                 self._stop_profiler()
 
         # Profiler bookkeeping above takes a variable time per rank; without a

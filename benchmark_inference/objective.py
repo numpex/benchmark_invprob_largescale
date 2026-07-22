@@ -164,16 +164,22 @@ class Objective(BaseObjective):
             beta = self.max_pixel * 1e-2  # softening scale: transition at 1% of peak
             asinh_gt = torch.arcsinh(ground_truth / beta)
             asinh_recon = torch.arcsinh(reconstruction / beta)
-            asinh_range = math.asinh(self.max_pixel / beta) - math.asinh(self.min_pixel / beta)
+            asinh_range = math.asinh(self.max_pixel / beta) - math.asinh(
+                self.min_pixel / beta
+            )
             mse_asinh = ((asinh_recon - asinh_gt) ** 2).mean().item()
             asinh_psnr = (
-                10.0 * math.log10(asinh_range**2 / mse_asinh) if mse_asinh > 0 else float("inf")
+                10.0 * math.log10(asinh_range**2 / mse_asinh)
+                if mse_asinh > 0
+                else float("inf")
             )
 
             self.evaluation_count += 1
             if self.save_output_figures:
                 # Save comparison figure
-                output_dir = "evaluation_output/" + name.replace("/", "_").replace("..", "")
+                output_dir = "evaluation_output/" + name.replace("/", "_").replace(
+                    "..", ""
+                )
                 save_comparison_figure(
                     self.ground_truth,
                     reconstruction,
@@ -201,7 +207,12 @@ class Objective(BaseObjective):
 
         # Return value (primary metric for stopping criterion) and additional metrics
         return dict(
-            value=-asinh_psnr, psnr=psnr, ssim=ssim, mse=mse, asinh_psnr=asinh_psnr, **extra
+            value=-asinh_psnr,
+            psnr=psnr,
+            ssim=ssim,
+            mse=mse,
+            asinh_psnr=asinh_psnr,
+            **extra,
         )
 
     def get_one_result(self):

@@ -40,7 +40,7 @@ DIM_MARKERS = {2: "o", 3: "s"}
 # Roofline hardware reference, keyed by the Slurm constraint recorded in the
 # results: (peak TF32 tensor-core TFLOPS, peak memory bandwidth TB/s).
 GPU_PEAKS = {
-    "h100": (494.0, 3.35),   # HBM3
+    "h100": (494.0, 3.35),  # HBM3
     "a100": (156.0, 2.039),  # HBM2e
 }
 
@@ -80,7 +80,9 @@ def _per_run_timings(df: pd.DataFrame) -> pd.DataFrame:
     for (compile_mode, n_gpus, idx_rep), group in df.groupby(
         ["compile_mode", "n_gpus", "idx_rep"], dropna=False
     ):
-        timed = group.dropna(subset=["objective_total_time_sec"]).sort_values("stop_val")
+        timed = group.dropna(subset=["objective_total_time_sec"]).sort_values(
+            "stop_val"
+        )
         if timed.empty:
             continue
         rows.append(
@@ -123,7 +125,9 @@ def _compile_summary(df: pd.DataFrame) -> pd.DataFrame:
     summary["speedup"] = baseline_stable / summary["stable_iter_mean"]
 
     summary["compile_order"] = summary["compile_mode"].apply(
-        lambda mode: COMPILE_ORDER.index(mode) if mode in COMPILE_ORDER else len(COMPILE_ORDER)
+        lambda mode: (
+            COMPILE_ORDER.index(mode) if mode in COMPILE_ORDER else len(COMPILE_ORDER)
+        )
     )
     return summary.sort_values(["n_gpus", "compile_order"]).reset_index(drop=True)
 
@@ -184,6 +188,7 @@ def _plot_compile_speedup(summary: pd.DataFrame, output_path: Path) -> str:
 # ---------------------------------------------------------------------------
 # Denoiser compile benchmark (denoiser_compile config)
 # ---------------------------------------------------------------------------
+
 
 def _shape_label(size) -> str:
     dims = normalize_size(size)
@@ -256,7 +261,9 @@ def _denoiser_summary(df: pd.DataFrame) -> pd.DataFrame:
         ["gpu", "denoiser", "shape", "dim", "area", "compile_mode", "idx_rep"],
         dropna=False,
     ):
-        timed = group.dropna(subset=["objective_denoise_time_sec"]).sort_values("stop_val")
+        timed = group.dropna(subset=["objective_denoise_time_sec"]).sort_values(
+            "stop_val"
+        )
         if timed.empty:
             continue
         rows.append(
@@ -272,7 +279,8 @@ def _denoiser_summary(df: pd.DataFrame) -> pd.DataFrame:
                 ),
                 "arith_intensity": (
                     float(timed["objective_arith_intensity"].dropna().mean())
-                    if has_ai else float("nan")
+                    if has_ai
+                    else float("nan")
                 ),
             }
         )
@@ -292,7 +300,9 @@ def _denoiser_summary(df: pd.DataFrame) -> pd.DataFrame:
     summary = summary.dropna(subset=["None", "pre"])
     summary = summary.rename(columns={"None": "eager_sec", "pre": "compiled_sec"})
     summary["speedup"] = summary["eager_sec"] / summary["compiled_sec"]
-    return summary.sort_values(["gpu", "dim", "area", "denoiser"]).reset_index(drop=True)
+    return summary.sort_values(["gpu", "dim", "area", "denoiser"]).reset_index(
+        drop=True
+    )
 
 
 def _denoiser_colors(summary: pd.DataFrame) -> dict[str, str]:
@@ -308,7 +318,15 @@ def _legend_handles(colors: dict[str, str], styles: dict[str, str] | None = None
         for d, c in colors.items()
     ]
     dim_handles = [
-        Line2D([0], [0], color="gray", marker=m, linestyle="None", markersize=9, label=f"{d}D")
+        Line2D(
+            [0],
+            [0],
+            color="gray",
+            marker=m,
+            linestyle="None",
+            markersize=9,
+            label=f"{d}D",
+        )
         for d, m in DIM_MARKERS.items()
     ]
     gpu_handles = [
@@ -336,9 +354,7 @@ def _plot_denoiser_speedup(summary: pd.DataFrame, output_path: Path) -> str:
     gpus = _gpus_of(summary)
     styles = {g: GPU_LINESTYLES[i % len(GPU_LINESTYLES)] for i, g in enumerate(gpus)}
     shapes = (
-        summary[["shape", "dim", "area"]]
-        .drop_duplicates()
-        .sort_values(["dim", "area"])
+        summary[["shape", "dim", "area"]].drop_duplicates().sort_values(["dim", "area"])
     )
     labels = shapes["shape"].tolist()
     xpos = {lab: i for i, lab in enumerate(labels)}
@@ -364,13 +380,26 @@ def _plot_denoiser_speedup(summary: pd.DataFrame, output_path: Path) -> str:
                     continue
                 xs = [xpos[s] for s in sub["shape"]]
                 ys = sub["speedup"].to_numpy()
-                ax.plot(xs, ys, linestyle=styles[gpu], marker=DIM_MARKERS[dim],
-                        color=colors[denoiser], markersize=9, linewidth=2)
+                ax.plot(
+                    xs,
+                    ys,
+                    linestyle=styles[gpu],
+                    marker=DIM_MARKERS[dim],
+                    color=colors[denoiser],
+                    markersize=9,
+                    linewidth=2,
+                )
                 for x, y in zip(xs, ys):
                     if np.isfinite(y):
-                        ax.annotate(f"{y:.2f}x", (x, y), xytext=offsets[gpu],
-                                    textcoords="offset points", ha="center",
-                                    fontsize=8, color=colors[denoiser])
+                        ax.annotate(
+                            f"{y:.2f}x",
+                            (x, y),
+                            xytext=offsets[gpu],
+                            textcoords="offset points",
+                            ha="center",
+                            fontsize=8,
+                            color=colors[denoiser],
+                        )
 
     if 0 < n2d < len(labels):
         ax.axvline(n2d - 0.5, color="black", ls="--", lw=1.2, alpha=0.4)
@@ -382,7 +411,8 @@ def _plot_denoiser_speedup(summary: pd.DataFrame, output_path: Path) -> str:
     ax.legend(
         handles=_legend_handles(colors, styles if multi_gpu else None),
         title="Denoiser / dim / GPU" if multi_gpu else "Denoiser / dim",
-        loc="center left", bbox_to_anchor=(1.01, 0.5) if multi_gpu else None,
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5) if multi_gpu else None,
     )
     style_axes(ax, _SPEEDUP_TITLE, "Shape  (2D  |  3D)", "Speedup")
     fig.tight_layout()
@@ -416,16 +446,31 @@ def _plot_one_roofline(summary: pd.DataFrame, output_path: Path, gpu: str) -> st
             sub = sub[np.isfinite(sub["arith_intensity"]) & np.isfinite(sub["speedup"])]
             if sub.empty:
                 continue
-            ax.scatter(sub["arith_intensity"], sub["speedup"], s=170,
-                       color=colors[denoiser], marker=DIM_MARKERS[dim],
-                       edgecolors="black", linewidths=0.8, zorder=10)
+            ax.scatter(
+                sub["arith_intensity"],
+                sub["speedup"],
+                s=170,
+                color=colors[denoiser],
+                marker=DIM_MARKERS[dim],
+                edgecolors="black",
+                linewidths=0.8,
+                zorder=10,
+            )
 
     ridge = _ridge_of(gpu)
     ridge_handle = []
     if ridge is not None:
         ax.axvline(ridge, color="gray", ls="--", lw=1.5)
-        ridge_handle = [Line2D([0], [0], color="gray", ls="--", lw=1.5,
-                               label=f"Ridge point ({ridge:.0f} FLOP/byte)")]
+        ridge_handle = [
+            Line2D(
+                [0],
+                [0],
+                color="gray",
+                ls="--",
+                lw=1.5,
+                label=f"Ridge point ({ridge:.0f} FLOP/byte)",
+            )
+        ]
     ax.axhline(1.0, color="black", ls=":", lw=1, alpha=0.4)
     ax.set_xscale("log")
     ax.legend(handles=_legend_handles(colors) + ridge_handle, loc="best", fontsize=10)

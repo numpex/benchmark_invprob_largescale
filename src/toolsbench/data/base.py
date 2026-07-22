@@ -20,7 +20,7 @@ class DataConfig:
     data_type: torch.dtype = torch.float32
     device: torch.device | str = torch.device("cpu")
     data_path: str | Path = "./data"
-    
+
 
 class BaseData(ABC):
 
@@ -124,7 +124,11 @@ class DeepinvData(BaseData, ABC):
         img = deepinv.utils.load_image(
             path,
             img_size=data_config.size,
-            device=torch.device(data_config.device) if isinstance(data_config.device, str) else data_config.device,
+            device=(
+                torch.device(data_config.device)
+                if isinstance(data_config.device, str)
+                else data_config.device
+            ),
             dtype=data_config.data_type,
             resize_mode="resize",
         )

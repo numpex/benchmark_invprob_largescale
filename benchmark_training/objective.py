@@ -6,7 +6,6 @@ PSNR / SSIM / MSE.  The only difference from inference is that ``get_objective``
 also forwards ``ground_truth`` so the supervised training loss can use it.
 """
 
-
 import torch
 from benchopt import BaseObjective
 from deepinv.loss.metric import PSNR
@@ -99,9 +98,7 @@ class Objective(BaseObjective):
             reconstruction = torch.clamp(
                 reconstruction, min=self.min_pixel, max=self.max_pixel
             )
-            ground_truth = torch.clamp(
-                gt, min=self.min_pixel, max=self.max_pixel
-            )
+            ground_truth = torch.clamp(gt, min=self.min_pixel, max=self.max_pixel)
 
             psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
             psnr = (
@@ -109,7 +106,6 @@ class Objective(BaseObjective):
                 if psnr_tensor.numel() > 1
                 else psnr_tensor.item()
             )
-
 
         result = dict(value=-psnr, psnr=psnr)
         for key, value in kwargs.items():

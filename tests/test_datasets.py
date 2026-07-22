@@ -3,12 +3,18 @@ import torch
 from pathlib import Path
 from unittest.mock import patch
 
-from toolsbench.data import DataConfig, HighResColorImagingData, SyntheticData, Tomography2D, Tomography3D
-
+from toolsbench.data import (
+    DataConfig,
+    HighResColorImagingData,
+    SyntheticData,
+    Tomography2D,
+    Tomography3D,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _2d_config(tmp_path, batch_size=2, h=64, w=64, channels=3):
     return DataConfig(
@@ -25,6 +31,7 @@ def _2d_config(tmp_path, batch_size=2, h=64, w=64, channels=3):
 # SyntheticData
 # ---------------------------------------------------------------------------
 
+
 class TestSyntheticData:
 
     def test_output_shape_2d(self):
@@ -38,7 +45,9 @@ class TestSyntheticData:
         assert data["data"].shape == (2, 4, 8, 16, 16)
 
     def test_output_dtype(self):
-        cfg = DataConfig(size=(16, 16), batch_size=1, channels=1, data_type=torch.float16)
+        cfg = DataConfig(
+            size=(16, 16), batch_size=1, channels=1, data_type=torch.float16
+        )
         data = SyntheticData().get_data(cfg)
         assert data["data"].dtype == torch.float16
 
@@ -55,6 +64,7 @@ class TestSyntheticData:
 # ---------------------------------------------------------------------------
 # HighResColorImagingData
 # ---------------------------------------------------------------------------
+
 
 class TestHighResColorImagingData:
 
@@ -83,6 +93,7 @@ class TestHighResColorImagingData:
 # ---------------------------------------------------------------------------
 # Tomography2D
 # ---------------------------------------------------------------------------
+
 
 class TestTomography2D:
 
@@ -113,12 +124,13 @@ class TestTomography2D:
 # Tomography3D  (download mocked — no network required)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_tomo3d_dataset():
     return {
-        "dense_reconstruction": torch.zeros(50, 60, 60),   # (D, H, W)
-        "sinogram": torch.zeros(80, 30, 25),               # (angles, det_h, det_v)
-        "vecs": torch.zeros(80, 12),                       # (angles, 12)
+        "dense_reconstruction": torch.zeros(50, 60, 60),  # (D, H, W)
+        "sinogram": torch.zeros(80, 30, 25),  # (angles, det_h, det_v)
+        "vecs": torch.zeros(80, 12),  # (angles, 12)
     }
 
 
@@ -162,7 +174,9 @@ class TestTomography3D:
 
     def test_output_dtype(self, tmp_path, mock_tomo3d_dataset):
         with _mock_tomo3d_download(mock_tomo3d_dataset):
-            cfg = DataConfig(size=(50, 60, 60), data_path=str(tmp_path), data_type=torch.float32)
+            cfg = DataConfig(
+                size=(50, 60, 60), data_path=str(tmp_path), data_type=torch.float32
+            )
             with pytest.warns(UserWarning):
                 data = Tomography3D().get_data(cfg)
         assert data["ground_truth"].dtype == torch.float32

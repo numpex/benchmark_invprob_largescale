@@ -53,7 +53,14 @@ class NvidiaProfiler(BenchProfiler):
         Number of iterations to record after warmup (0 = all remaining).
     """
 
-    def __init__(self, device, name: str, warmup: int = 0, active: int = 0, save_file: bool = False):
+    def __init__(
+        self,
+        device,
+        name: str,
+        warmup: int = 0,
+        active: int = 0,
+        save_file: bool = False,
+    ):
         self._device = torch.device(device) if isinstance(device, str) else device
         self._name = name
         self._has_cuda = torch.cuda.is_available() and self._device.type == "cuda"
@@ -123,12 +130,19 @@ class NvidiaProfiler(BenchProfiler):
         if self._has_cuda:
             torch.cuda.synchronize(self._device)
         total_time = time.perf_counter() - self._iter_t0
-        max_gpu = torch.cuda.max_memory_allocated(self._device) / 1024**2 if self._has_cuda else 0.0
+        max_gpu = (
+            torch.cuda.max_memory_allocated(self._device) / 1024**2
+            if self._has_cuda
+            else 0.0
+        )
 
         self._pop_iter_range()
 
         if self._is_recording():
-            captured = {"total_time_sec": round(total_time, 6), "max_gpu_mb": round(max_gpu, 1)}
+            captured = {
+                "total_time_sec": round(total_time, 6),
+                "max_gpu_mb": round(max_gpu, 1),
+            }
             self._all_results.append(captured)
             self._current_metrics = captured
 
@@ -141,7 +155,7 @@ class NvidiaProfiler(BenchProfiler):
 
         if self._has_cuda:
             torch.cuda.reset_peak_memory_stats(self._device)
-     
+
         if ctx is not None and getattr(ctx, "use_dist", False):
             ctx.barrier()
 

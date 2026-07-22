@@ -1,10 +1,13 @@
-"""Multiframe super-resolution dataset for benchmarking large scale inverse problems.
+"""Multiframe super-resolution dataset for benchmarking large scale inverse problems."""
 
-"""
 from benchopt import BaseDataset, config
 from deepinv.distributed import DistributedContext
 
-from toolsbench.invprob import DenoisingInvProb, MultiFrameSuperResInvProb, InvProbConfig
+from toolsbench.invprob import (
+    DenoisingInvProb,
+    MultiFrameSuperResInvProb,
+    InvProbConfig,
+)
 from toolsbench.utils import save_measurements_figure, setup_distributed_env
 
 

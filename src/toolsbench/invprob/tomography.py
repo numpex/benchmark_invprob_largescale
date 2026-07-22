@@ -135,8 +135,7 @@ class TomographyInvProb(BaseInvProb):
             num_operators=params.num_operators,
         )
         measurements = [
-            measurements_factory(i, device, None)
-            for i in range(params.num_operators)
+            measurements_factory(i, device, None) for i in range(params.num_operators)
         ]
 
         physics_factory = self._create_3d_physics_factory(
@@ -266,9 +265,7 @@ class TomographyInvProb(BaseInvProb):
             device=device,
         )[:-1]
 
-    def _subsample_angles(
-        self, tensor: torch.Tensor, num_angles: int
-    ) -> torch.Tensor:
+    def _subsample_angles(self, tensor: torch.Tensor, num_angles: int) -> torch.Tensor:
         angle_dim = self._angle_dim(tensor)
         total = tensor.shape[angle_dim]
         if num_angles >= total:

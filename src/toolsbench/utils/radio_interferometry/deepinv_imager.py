@@ -7,11 +7,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from astropy import constants as const
-from deepinv.physics import RadioInterferometry, LinearPhysics
+from deepinv.physics import LinearPhysics
 from typing_extensions import TypeAlias
 
 FilePathType: TypeAlias = Union[Path, str]
 DEFAULT_DEVICE = torch.device("cpu")
+
 
 class MyRadioInterferometry(LinearPhysics):
     r"""
@@ -126,6 +127,7 @@ class MyRadioInterferometry(LinearPhysics):
         return self.adj_projection(
             self.adjnufftObj(y * self.dataWeight, self.samples_loc, norm=None)
         )
+
 
 @dataclass
 class DirtyImagerConfig:

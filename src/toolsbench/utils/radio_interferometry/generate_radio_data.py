@@ -7,7 +7,9 @@ from pathlib import Path
 # order to resolve the top-level ``toolsbench`` package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from toolsbench.utils.radio_interferometry.karabo_utils import generate_meerkat_visibilities
+from toolsbench.utils.radio_interferometry.karabo_utils import (
+    generate_meerkat_visibilities,
+)
 from toolsbench.utils.radio_interferometry.radio_utils import (
     load_config,
     load_fits_image,

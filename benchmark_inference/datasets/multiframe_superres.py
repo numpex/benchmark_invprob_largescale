@@ -1,6 +1,5 @@
-"""Multiframe super-resolution dataset for benchmarking large scale inverse problems.
+"""Multiframe super-resolution dataset for benchmarking large scale inverse problems."""
 
-"""
 from benchopt import BaseDataset, config
 from deepinv.distributed import DistributedContext
 
@@ -24,7 +23,9 @@ class Dataset(BaseDataset):
     }
 
     def prepare(self):
-        check_installed("highres_color_image", config.get_data_path(key="multiframe_superres"))
+        check_installed(
+            "highres_color_image", config.get_data_path(key="multiframe_superres")
+        )
 
     def get_data(self):
         """Load the data for this Dataset.

@@ -59,7 +59,7 @@ class Tomography3D(HFData):
         vecs = dataset["vecs"].to(device=device, dtype=dtype)
 
         return {"ground_truth": gt, "sinogram": sino, "vecs": vecs}
-    
+
     def _get_dataset(self, data_config: DataConfig) -> dict[str, torch.Tensor]:
         data_path = self.download(data_path=data_config.data_path)
         return torch.load(data_path, weights_only=True)

@@ -8,7 +8,6 @@ import torch
 
 from toolsbench.data.base import DataConfig, HFData
 
-
 VALID_FITS_SIZES = ("1024", "10k")
 
 
@@ -77,7 +76,9 @@ class RadioInterferometryData(HFData):
         size_dir = data_path / fits_size
         fits_files = sorted(size_dir.glob("*.fits"))
         if len(fits_files) != 1:
-            available = sorted(str(p.relative_to(data_path)) for p in data_path.rglob("*.fits"))
+            available = sorted(
+                str(p.relative_to(data_path)) for p in data_path.rglob("*.fits")
+            )
             raise RuntimeError(
                 f"Expected exactly one FITS file under {size_dir}, found "
                 f"{len(fits_files)}. Available FITS files: {available}"
@@ -93,4 +94,6 @@ class RadioInterferometryData(HFData):
     ) -> str:
         """Return the selected FITS path relative to *data_path*."""
         data_path = Path(data_path)
-        return str(cls.select_fits_file(data_path, fits_size, fits_name).relative_to(data_path))
+        return str(
+            cls.select_fits_file(data_path, fits_size, fits_name).relative_to(data_path)
+        )
