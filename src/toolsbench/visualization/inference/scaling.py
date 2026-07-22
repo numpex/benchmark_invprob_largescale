@@ -131,9 +131,7 @@ def _plot_weak_scaling(summary: pd.DataFrame, output_path: Path) -> str:
     )
     for idx, workload in enumerate(workloads):
         rows = (
-            weak[weak["local_workload_label"] == workload]
-            .sort_values("n_gpus")
-            .copy()
+            weak[weak["local_workload_label"] == workload].sort_values("n_gpus").copy()
         )
         baseline_time = float(rows.iloc[0]["avg_total_time_sec"])
         rows["time_ratio"] = rows["avg_total_time_sec"] / baseline_time

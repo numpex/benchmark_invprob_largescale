@@ -8,10 +8,10 @@ from toolsbench.solver.denoiser import DenoiserSolver
 from toolsbench.solver.pnp import PnPSolver
 from toolsbench.solver.unrolled_pnp import UnrolledPnPSolver
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_objective(**kwargs):
     defaults = dict(
@@ -97,12 +97,15 @@ def _run_one_iter(solver, prior, data_fidelity, step_size=0.1):
         "toolsbench.solver.pnp.distributed_callback_iter",
         return_value=iter([None]),
     ):
-        solver._run_iterations(prior, data_fidelity, physics, measurements, step_size, None)
+        solver._run_iterations(
+            prior, data_fidelity, physics, measurements, step_size, None
+        )
 
 
 # ---------------------------------------------------------------------------
 # PnPSolver._compute_step_size
 # ---------------------------------------------------------------------------
+
 
 class TestPnPSolverComputeStepSize:
 
@@ -124,6 +127,7 @@ class TestPnPSolverComputeStepSize:
 # PnPSolver._setup_components
 # ---------------------------------------------------------------------------
 
+
 class TestPnPSolverSetupComponents:
 
     def test_returns_prior_and_data_fidelity(self):
@@ -131,7 +135,9 @@ class TestPnPSolverSetupComponents:
         from deepinv.optim.data_fidelity import L2
 
         solver = _make_solver()
-        with patch("toolsbench.solver.pnp.create_drunet_denoiser", return_value=MagicMock()):
+        with patch(
+            "toolsbench.solver.pnp.create_drunet_denoiser", return_value=MagicMock()
+        ):
             prior, data_fidelity = solver._setup_components()
 
         assert isinstance(prior, PnP)
@@ -146,6 +152,7 @@ class TestPnPSolverSetupComponents:
 # ---------------------------------------------------------------------------
 # PnPSolver._run_pnp_iterations
 # ---------------------------------------------------------------------------
+
 
 class TestPnPSolverIterations:
 
@@ -201,12 +208,15 @@ class TestPnPSolverIterations:
         _run_one_iter(solver, prior, data_fidelity, step_size=step_size)
 
         expected_alpha = (step_size * 1.0) / (1 + step_size * 1.0)
-        assert solver.reconstruction.mean().item() == pytest.approx(expected_alpha, abs=1e-4)
+        assert solver.reconstruction.mean().item() == pytest.approx(
+            expected_alpha, abs=1e-4
+        )
 
 
 # ---------------------------------------------------------------------------
 # PnPSolver.get_result
 # ---------------------------------------------------------------------------
+
 
 class TestPnPSolverGetResult:
 
@@ -226,6 +236,7 @@ class TestPnPSolverGetResult:
 # PnPSolver / DenoiserSolver image_size wiring
 # ---------------------------------------------------------------------------
 
+
 class TestSolverImageSizeResize:
 
     def test_pnp_resizes_with_device(self):
@@ -234,8 +245,12 @@ class TestSolverImageSizeResize:
         problem.resized.return_value = sentinel
         device = torch.device("cpu")
         solver = PnPSolver(
-            problem=problem, device=device, profiler=NullProfiler(),
-            ctx=None, distributed_mode=False, image_size=[16, 16],
+            problem=problem,
+            device=device,
+            profiler=NullProfiler(),
+            ctx=None,
+            distributed_mode=False,
+            image_size=[16, 16],
         )
         problem.resized.assert_called_once_with([16, 16], device=device)
         assert solver.problem is sentinel
@@ -246,8 +261,12 @@ class TestSolverImageSizeResize:
         problem.resized.return_value = sentinel
         device = torch.device("cpu")
         solver = DenoiserSolver(
-            problem=problem, device=device, profiler=NullProfiler(),
-            ctx=None, distributed_mode=False, image_size=[16, 16],
+            problem=problem,
+            device=device,
+            profiler=NullProfiler(),
+            ctx=None,
+            distributed_mode=False,
+            image_size=[16, 16],
         )
         problem.resized.assert_called_once_with([16, 16], device=device)
         assert solver.problem is sentinel
@@ -257,12 +276,17 @@ class TestSolverImageSizeResize:
 # UnrolledPnPSolver._setup_components / _setup_optimizer
 # ---------------------------------------------------------------------------
 
+
 class TestUnrolledPnPSolverSetupComponents:
 
     def test_returns_pgd_model_and_denoiser_params(self):
         from deepinv.optim import PGD
+
         solver = _make_unrolled_solver()
-        with patch("toolsbench.solver.unrolled_pnp.create_drunet_denoiser", return_value=_mock_denoiser()):
+        with patch(
+            "toolsbench.solver.unrolled_pnp.create_drunet_denoiser",
+            return_value=_mock_denoiser(),
+        ):
             model, denoiser_params = solver._setup_components()
         assert isinstance(model, PGD)
         assert isinstance(denoiser_params, list)
@@ -274,7 +298,10 @@ class TestUnrolledPnPSolverSetupComponents:
 
     def test_setup_optimizer_with_algo_params(self):
         solver = _make_unrolled_solver(train_algo_params=True)
-        with patch("toolsbench.solver.unrolled_pnp.create_drunet_denoiser", return_value=_mock_denoiser()):
+        with patch(
+            "toolsbench.solver.unrolled_pnp.create_drunet_denoiser",
+            return_value=_mock_denoiser(),
+        ):
             _, denoiser_params = solver._setup_components()
         optimizer = solver._setup_optimizer(denoiser_params)
         assert isinstance(optimizer, torch.optim.Adam)
@@ -282,7 +309,10 @@ class TestUnrolledPnPSolverSetupComponents:
 
     def test_setup_optimizer_without_algo_params(self):
         solver = _make_unrolled_solver(train_algo_params=False)
-        with patch("toolsbench.solver.unrolled_pnp.create_drunet_denoiser", return_value=_mock_denoiser()):
+        with patch(
+            "toolsbench.solver.unrolled_pnp.create_drunet_denoiser",
+            return_value=_mock_denoiser(),
+        ):
             _, denoiser_params = solver._setup_components()
         optimizer = solver._setup_optimizer(denoiser_params)
         assert isinstance(optimizer, torch.optim.Adam)
@@ -292,6 +322,7 @@ class TestUnrolledPnPSolverSetupComponents:
 # ---------------------------------------------------------------------------
 # UnrolledPnPSolver.get_result
 # ---------------------------------------------------------------------------
+
 
 class TestUnrolledPnPSolverGetResult:
 
@@ -327,6 +358,7 @@ class TestUnrolledPnPSolverGetResult:
 # DenoiserSolver
 # ---------------------------------------------------------------------------
 
+
 class TestDenoiserSolver:
 
     def test_compile_post_requires_distribute(self):
@@ -345,7 +377,11 @@ class TestDenoiserSolver:
         solver = DenoiserSolver.__new__(DenoiserSolver)
         solver.reconstruction = torch.ones(1, 1, 4, 4)
         solver.reference = torch.zeros(1, 1, 4, 4)
-        solver.roofline_metrics = {"flops": 100, "mem_bytes": 10, "arith_intensity": 10.0}
+        solver.roofline_metrics = {
+            "flops": 100,
+            "mem_bytes": 10,
+            "arith_intensity": 10.0,
+        }
         solver.profiler = MagicMock()
         solver.profiler.get_current_metrics.return_value = {"denoise_time_sec": 0.5}
 

@@ -221,3 +221,7 @@ package-lock.json
 !site/package-lock.json
 site/.astro/
 !site/src/lib
+
+
+# Benchopt
+benchopt_run/

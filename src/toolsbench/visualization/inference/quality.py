@@ -118,17 +118,14 @@ def _quality_summary(df: pd.DataFrame, quality: pd.DataFrame) -> pd.DataFrame:
     final_quality = final_quality[
         final_quality["stop_val"] == final_quality["max_iter"]
     ]
-    final_quality = (
-        final_quality.groupby(
-            ["p_dataset_image_size", "p_solver_overlap", "p_solver_patch_size"],
-            as_index=False,
-            dropna=False,
-        )
-        .agg(
-            delta_psnr_db=("delta_psnr_db", "mean"),
-            objective_psnr=("objective_psnr", "mean"),
-            reference_psnr=("reference_psnr", "mean"),
-        )
+    final_quality = final_quality.groupby(
+        ["p_dataset_image_size", "p_solver_overlap", "p_solver_patch_size"],
+        as_index=False,
+        dropna=False,
+    ).agg(
+        delta_psnr_db=("delta_psnr_db", "mean"),
+        objective_psnr=("objective_psnr", "mean"),
+        reference_psnr=("reference_psnr", "mean"),
     )
     summary = config_summary.merge(
         final_quality,

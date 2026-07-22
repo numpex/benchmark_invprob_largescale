@@ -12,7 +12,6 @@ from toolsbench.profiler import (
 )
 from toolsbench.profiler.torch_profiler import _group_by_key
 
-
 # CPU always; CUDA too when present. GitHub CI (ubuntu-latest) is CPU-only.
 DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
@@ -31,6 +30,7 @@ def _run_torch(p, n_iters, device="cpu"):
 # NullProfiler
 # ---------------------------------------------------------------------------
 
+
 class TestNullProfiler:
 
     def test_full_interface(self):
@@ -47,6 +47,7 @@ class TestNullProfiler:
 # ---------------------------------------------------------------------------
 # CustomProfiler — recording window logic
 # ---------------------------------------------------------------------------
+
 
 class TestCustomProfilerRecordingWindow:
 
@@ -94,6 +95,7 @@ class TestCustomProfilerRecordingWindow:
 # CustomProfiler — metric content and CSV output
 # ---------------------------------------------------------------------------
 
+
 class TestCustomProfilerMetrics:
 
     def test_track_step_records_time(self):
@@ -127,6 +129,7 @@ class TestCustomProfilerMetrics:
         csv_path = tmp_path / "outputs" / "myrun_gpu_metrics.csv"
         assert csv_path.exists()
         import pandas as pd
+
         df = pd.read_csv(csv_path)
         assert "total_time_sec" in df.columns
         assert len(df) == 1
@@ -143,6 +146,7 @@ class TestCustomProfilerMetrics:
 # ---------------------------------------------------------------------------
 # create_profiler factory
 # ---------------------------------------------------------------------------
+
 
 class TestCreateProfiler:
 
@@ -169,10 +173,14 @@ class TestCreateProfiler:
 # TorchProfiler
 # ---------------------------------------------------------------------------
 
+
 def _avg(key, cpu=0.0, dev=0.0, count=1, is_user=False):
     return SimpleNamespace(
-        key=key, cpu_time_total=cpu, device_time_total=dev,
-        count=count, is_user_annotation=is_user,
+        key=key,
+        cpu_time_total=cpu,
+        device_time_total=dev,
+        count=count,
+        is_user_annotation=is_user,
     )
 
 
@@ -195,8 +203,8 @@ class TestTorchProfiler:
             _avg("denoise", cpu=0.0, dev=200.0, count=5),
         ]
         g = _group_by_key(avgs)["denoise"]
-        assert g["cpu_time"] == 100.0   # from CPU-view
-        assert g["dev_time"] == 200.0   # CUDA-view wins over CPU-view fallback
+        assert g["cpu_time"] == 100.0  # from CPU-view
+        assert g["dev_time"] == 200.0  # CUDA-view wins over CPU-view fallback
         assert g["count"] == 5
         assert g["is_user"] is True
 
@@ -208,6 +216,7 @@ class TestTorchProfiler:
         _run_torch(p, n_iters=3, device=device)
         p.finalize(None)
         import pandas as pd
+
         df = pd.read_csv(tmp_path / "outputs" / "run_gpu_metrics.csv")
         assert set(df["iter"]) == expected
 
@@ -215,11 +224,13 @@ class TestTorchProfiler:
     def test_window_records_only_active_iters(self, tmp_path, monkeypatch, device):
         # warmup=1 skips iter 0; active=2 stops after iters 1,2 => iters 3,4 unrecorded.
         monkeypatch.chdir(tmp_path)
-        p = TorchProfiler(device=device, name="run", warmup=1, active=2, per_step=True,
-                          save_file=True)
+        p = TorchProfiler(
+            device=device, name="run", warmup=1, active=2, per_step=True, save_file=True
+        )
         _run_torch(p, n_iters=5, device=device)
         p.finalize(None)
         import pandas as pd
+
         df = pd.read_csv(tmp_path / "outputs" / "run_gpu_metrics.csv")
         assert set(df["iter"]) == {1, 2}
 
@@ -228,8 +239,13 @@ class TestTorchProfiler:
         # Chrome trace must still be exported (finalize reorder fix).
         monkeypatch.chdir(tmp_path)
         trace_dir = tmp_path / "traces"
-        p = TorchProfiler(device="cpu", name="run", warmup=100,
-                          per_step=False, trace_dir=str(trace_dir))
+        p = TorchProfiler(
+            device="cpu",
+            name="run",
+            warmup=100,
+            per_step=False,
+            trace_dir=str(trace_dir),
+        )
         _run_torch(p, n_iters=2, device="cpu")
         p.finalize(None)
         assert not p._all_op_rows
@@ -249,12 +265,15 @@ class TestTorchProfiler:
     def test_dev_time_views_equal_gpu(self):
         """Codifies the investigation: key_averages() emits a CPU-view and a
         CUDA-view per user section; cpu_time lives on one, self_device on the
-        other, and the two device_time_total values agree (min() is a safe tie-break)."""
+        other, and the two device_time_total values agree (min() is a safe tie-break).
+        """
         x = torch.randn(1024, 1024, device="cuda")
         sched = torch.profiler.schedule(wait=0, warmup=2, active=3, repeat=1)
         with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU,
-                        torch.profiler.ProfilerActivity.CUDA],
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
             schedule=sched,
         ) as prof:
             for _ in range(5):
@@ -264,8 +283,11 @@ class TestTorchProfiler:
                         y = y @ x
                 prof.step()
 
-        views = [e for e in prof.key_averages()
-                 if e.is_user_annotation and e.key == "denoise"]
+        views = [
+            e
+            for e in prof.key_averages()
+            if e.is_user_annotation and e.key == "denoise"
+        ]
         assert len(views) == 2
         cpu_view = max(views, key=lambda e: e.cpu_time_total)
         cuda_view = max(views, key=lambda e: e.self_device_time_total)
@@ -278,6 +300,7 @@ class TestTorchProfiler:
 # ---------------------------------------------------------------------------
 # NvidiaProfiler
 # ---------------------------------------------------------------------------
+
 
 class TestNvidiaProfiler:
 
@@ -320,4 +343,6 @@ class TestNvidiaProfiler:
             with p.track_step("grad"):
                 pass
             p.end_iteration()  # crosses the warmup boundary
-            assert p._iter_range_open is True   # iter 1 = first recorded iter: range open
+            assert (
+                p._iter_range_open is True
+            )  # iter 1 = first recorded iter: range open

@@ -73,7 +73,6 @@ class DenoiserSolver:
 
     def run(self, cb):
 
-
         noisy = next(iter(self.problem.measurements))
         self.reconstruction = (
             noisy.to(self.device).clone()
@@ -128,13 +127,13 @@ class DenoiserSolver:
         Runs on a throw-away eager model, so it is unaffected by torch.compile
         and by tiling. Skipped (empty metrics) if the full image does not fit.
         """
-        model = create_denoiser(
-            self.denoiser, self.shape, self.device, torch.float32
-        )
+        model = create_denoiser(self.denoiser, self.shape, self.device, torch.float32)
         try:
             metrics = profile_roofline(model, self.reconstruction, self.denoiser_sigma)
         except torch.cuda.OutOfMemoryError:
-            print("Roofline profiling skipped: full-image forward does not fit in memory.")
+            print(
+                "Roofline profiling skipped: full-image forward does not fit in memory."
+            )
             metrics = {}
         finally:
             del model
@@ -144,7 +143,9 @@ class DenoiserSolver:
 
     def _run_iterations(self, denoiser, cb):
         with torch.no_grad():
-            for _ in distributed_callback_iter(cb, self.distributed_mode, self.device, self.ctx):
+            for _ in distributed_callback_iter(
+                cb, self.distributed_mode, self.device, self.ctx
+            ):
                 with self.profiler.track_step("denoise"):
                     self.reconstruction = denoiser(
                         self.reconstruction, sigma=self.denoiser_sigma

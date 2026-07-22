@@ -9,7 +9,11 @@ gradient step per benchopt iteration on this batch.
 from benchopt import BaseDataset, config
 from deepinv.distributed import DistributedContext
 
-from toolsbench.invprob import DenoisingInvProb, InvProbConfig, MultiFrameSuperResInvProb
+from toolsbench.invprob import (
+    DenoisingInvProb,
+    InvProbConfig,
+    MultiFrameSuperResInvProb,
+)
 from toolsbench.utils import save_measurements_figure, setup_distributed_env
 
 

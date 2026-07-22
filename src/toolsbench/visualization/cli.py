@@ -19,7 +19,9 @@ from toolsbench.visualization.inference.compile_speedup import (
 )
 from toolsbench.visualization.inference.quality import create_quality_visualizations
 from toolsbench.visualization.inference.scaling import create_scaling_visualizations
-from toolsbench.visualization.training.batch_size import create_batch_size_visualizations
+from toolsbench.visualization.training.batch_size import (
+    create_batch_size_visualizations,
+)
 from toolsbench.visualization.training.checkpointing import (
     create_checkpointing_visualizations,
 )
@@ -218,15 +220,21 @@ def _run_inference(args, parser: argparse.ArgumentParser) -> list[Path]:
     if experiment == "quality":
         return [create_quality_visualizations(args.results, Path(args.output_dir))]
     if experiment == "compile_speedup":
-        return [create_compile_speedup_visualizations(args.results, Path(args.output_dir))]
+        return [
+            create_compile_speedup_visualizations(args.results, Path(args.output_dir))
+        ]
     if experiment == "denoiser_compile":
-        return [create_denoiser_compile_visualizations(
-            args.results, Path(args.output_dir), roofline=args.roofline
-        )]
+        return [
+            create_denoiser_compile_visualizations(
+                args.results, Path(args.output_dir), roofline=args.roofline
+            )
+        ]
     if experiment == "comm_inference":
-        return [create_comm_inference_visualizations(
-            args.results, Path(args.output_dir), skip_warmup=args.skip_warmup
-        )]
+        return [
+            create_comm_inference_visualizations(
+                args.results, Path(args.output_dir), skip_warmup=args.skip_warmup
+            )
+        ]
     parser.error(f"Unknown inference experiment: {args.experiment}")
     return []
 

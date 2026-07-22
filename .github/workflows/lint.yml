@@ -1,0 +1,33 @@
+name: Lint
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check formatting with Black
+        run: uvx black --check src benchmark_training benchmark_inference tests docs
+
+      - name: Lint with Ruff
+        run: uvx ruff check src benchmark_training benchmark_inference tests docs

@@ -1,4 +1,3 @@
-
 import torch
 from deepinv.distributed import distribute
 from deepinv.optim.data_fidelity import L2
@@ -16,10 +15,11 @@ from toolsbench.utils.solver_utils import (
 def compute_step_size_from_operator(operator, ground_truth: torch.Tensor) -> float:
     """Step size = 1 / Lipschitz constant of the forward operator."""
     with torch.no_grad():
-        x_example = torch.zeros_like(ground_truth, device=ground_truth.device, dtype=ground_truth.dtype)
+        x_example = torch.zeros_like(
+            ground_truth, device=ground_truth.device, dtype=ground_truth.dtype
+        )
         lipschitz_constant = operator.compute_norm(x_example, local_only=False)
         return 1.0 / lipschitz_constant if lipschitz_constant > 0 else 1.0
-
 
 
 class PnPSolver:
@@ -83,11 +83,15 @@ class PnPSolver:
                 num_operators=self.problem.num_operators,
                 type_object="linear_physics",
             )
-        elif callable(self.problem.physics) and not isinstance(self.problem.physics, Physics):
-            physics = stack(*[
-                self.problem.physics(i, self.device, None)
-                for i in range(self.problem.num_operators)
-            ])
+        elif callable(self.problem.physics) and not isinstance(
+            self.problem.physics, Physics
+        ):
+            physics = stack(
+                *[
+                    self.problem.physics(i, self.device, None)
+                    for i in range(self.problem.num_operators)
+                ]
+            )
         else:
             physics = self.problem.physics
             if hasattr(physics, "to"):
@@ -103,9 +107,13 @@ class PnPSolver:
 
         if self.compile == "pre":
             local_ops = (
-                list(physics.local_physics) if hasattr(physics, "local_physics")
-                else list(physics.physics_list) if hasattr(physics, "physics_list")
-                else [physics]
+                list(physics.local_physics)
+                if hasattr(physics, "local_physics")
+                else (
+                    list(physics.physics_list)
+                    if hasattr(physics, "physics_list")
+                    else [physics]
+                )
             )
             for op in local_ops:
                 if hasattr(op, "xray_transform"):
@@ -130,9 +138,7 @@ class PnPSolver:
 
     def _setup_components(self):
         if self.denoiser == "drunet":
-            denoiser = create_drunet_denoiser(
-                self.shape, self.device, torch.float32
-            )
+            denoiser = create_drunet_denoiser(self.shape, self.device, torch.float32)
         else:
             raise ValueError(f"Unknown denoiser: {self.denoiser}")
 
@@ -145,9 +151,7 @@ class PnPSolver:
                 self.ctx,
                 patch_size=self.patch_size,
                 overlap=self.overlap,
-                tiling_dims=(
-                    (-3, -2, -1) if len(self.shape) == 5 else (-2, -1)
-                ),
+                tiling_dims=((-3, -2, -1) if len(self.shape) == 5 else (-2, -1)),
                 max_batch_size=self.max_batch_size,
                 type_object="denoiser",
             )
@@ -170,7 +174,9 @@ class PnPSolver:
         if isinstance(self.step_size, float):
             return self.step_size
         x_example = torch.zeros(self.shape, device=self.device)
-        return compute_step_size_from_operator(physics, x_example) * self.step_size_scale
+        return (
+            compute_step_size_from_operator(physics, x_example) * self.step_size_scale
+        )
 
     def _initialize_reconstruction(self, physics, measurement):
         with torch.no_grad():
@@ -181,10 +187,16 @@ class PnPSolver:
                 device=self.device,
                 method=self.init_method,
                 clip_range=(self.problem.min_pixel, self.problem.max_pixel),
-                weights=self.problem.invprob_kwargs.get("weights") if self.problem.invprob_kwargs else None,
+                weights=(
+                    self.problem.invprob_kwargs.get("weights")
+                    if self.problem.invprob_kwargs
+                    else None
+                ),
             )
 
-    def _run_iterations(self, prior, data_fidelity, physics, measurements, step_size, cb):
+    def _run_iterations(
+        self, prior, data_fidelity, physics, measurements, step_size, cb
+    ):
         sig_min, sig_max = self.problem.min_pixel, self.problem.max_pixel
 
         if self.compile == "fused":
@@ -206,16 +218,22 @@ class PnPSolver:
             pnp_step = torch.compile(pnp_step)
 
             with torch.no_grad():
-                for _ in distributed_callback_iter(cb, self.distributed_mode, self.device, self.ctx):
+                for _ in distributed_callback_iter(
+                    cb, self.distributed_mode, self.device, self.ctx
+                ):
                     with self.profiler.track_step("pnp"):
                         self.reconstruction = pnp_step(self.reconstruction)
                     self.profiler.end_iteration(self.ctx)
             return
 
         with torch.no_grad():
-            for _ in distributed_callback_iter(cb, self.distributed_mode, self.device, self.ctx):
+            for _ in distributed_callback_iter(
+                cb, self.distributed_mode, self.device, self.ctx
+            ):
                 with self.profiler.track_step("gradient"):
-                    grad = data_fidelity.grad(self.reconstruction, measurements, physics)
+                    grad = data_fidelity.grad(
+                        self.reconstruction, measurements, physics
+                    )
                     self.reconstruction = self.reconstruction - step_size * grad
 
                 with self.profiler.track_step("denoise"):
@@ -234,8 +252,8 @@ class PnPSolver:
                             lamda = self.denoiser_lambda_relaxation
                             alpha = (step_size * lamda) / (1 + step_size * lamda)
                             self.reconstruction = (
-                                (1 - alpha) * self.reconstruction + alpha * denoised
-                            )
+                                1 - alpha
+                            ) * self.reconstruction + alpha * denoised
 
                         self.reconstruction = self.reconstruction * scale + sig_min
                     else:
@@ -250,8 +268,8 @@ class PnPSolver:
                             lamda = self.denoiser_lambda_relaxation
                             alpha = (step_size * lamda) / (1 + step_size * lamda)
                             self.reconstruction = (
-                                (1 - alpha) * self.reconstruction + alpha * x_denoised
-                            )
+                                1 - alpha
+                            ) * self.reconstruction + alpha * x_denoised
                         self.reconstruction = torch.clamp(
                             self.reconstruction, sig_min, sig_max
                         )

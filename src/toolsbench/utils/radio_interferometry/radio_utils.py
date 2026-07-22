@@ -155,9 +155,7 @@ def get_meerkat_visibilities_path(
     with Path(fits_file).open("rb") as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             fits_hash.update(chunk)
-    full_hash = hashlib.md5(
-        (params_hash + fits_hash.hexdigest()).encode()
-    ).hexdigest()
+    full_hash = hashlib.md5((params_hash + fits_hash.hexdigest()).encode()).hexdigest()
 
     vis_path = cache_dir / f"{full_hash}.ms"
     return vis_path

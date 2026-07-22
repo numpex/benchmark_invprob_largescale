@@ -10,7 +10,10 @@ class SyntheticData(BaseData):
     def get_data(self, data_config: DataConfig) -> dict[str, torch.Tensor]:
         """Returns a batch of synthetic data with parameters specified in the data_config."""
         img = self._generate_synthetic_signal(
-            data_config.device, data_config.size, data_config.channels, data_config.data_type
+            data_config.device,
+            data_config.size,
+            data_config.channels,
+            data_config.data_type,
         )
         return {"data": img.repeat(data_config.batch_size, *([1] * (img.ndim - 1)))}
 
@@ -19,7 +22,11 @@ class SyntheticData(BaseData):
         return Path(data_path)
 
     def _generate_synthetic_signal(
-        self, device: torch.device, size: int | tuple[int, ...], channels: int, dtype: torch.dtype
+        self,
+        device: torch.device,
+        size: int | tuple[int, ...],
+        channels: int,
+        dtype: torch.dtype,
     ) -> torch.Tensor:
         """Generate a synthetic n-dimensional signal with geometric patterns.
 
@@ -73,4 +80,3 @@ class SyntheticData(BaseData):
         # Stack channels and add batch dim: (1, C, d1, ..., dn)
         img = torch.stack(channels_list, dim=0).unsqueeze(0)
         return img.to(dtype)
-    

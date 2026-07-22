@@ -26,6 +26,7 @@ if not hasattr(builtins, "Sequence"):
 
 try:
     from SimAIBench import DataStore
+
     _SIMAIBENCH_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - depends on runtime environment.
     DataStore = None
@@ -174,6 +175,7 @@ def eos_key(key_prefix: str) -> str:
 
 def result_key(key_prefix: str) -> str:
     return f"{key_prefix}:result"
+
 
 def error_key(key_prefix: str) -> str:
     return f"{key_prefix}:error"
@@ -464,7 +466,9 @@ def _build_blur_physics(physics_spec, compute_device):
 
 
 def _build_radio_physics(ground_truth_shape, physics_spec, compute_device):
-    from toolsbench.utils.deepinv_imager import MyRadioInterferometry
+    from benchmark_invprob_largescale.src.toolsbench.utils.radio_interferometry.deepinv_imager import (
+        MyRadioInterferometry,
+    )
 
     imaging_npixel = int(ground_truth_shape[-1])
     samples_locs = _to_device(_get_radio_samples_locs(physics_spec), compute_device)
@@ -482,7 +486,9 @@ def _build_radio_physics(ground_truth_shape, physics_spec, compute_device):
 def _build_physics_from_spec(ground_truth_shape, physics_spec, compute_device):
     mode = _detect_physics_mode(physics_spec)
     if mode == "blur":
-        return _build_blur_physics(physics_spec=physics_spec, compute_device=compute_device)
+        return _build_blur_physics(
+            physics_spec=physics_spec, compute_device=compute_device
+        )
     if mode == "radio":
         return _build_radio_physics(
             ground_truth_shape=ground_truth_shape,
@@ -504,6 +510,7 @@ def _build_denoiser(mode, pnp_cfg, ground_truth_shape, compute_device):
 
     if denoiser_kind == "drunet":
         from toolsbench.utils import create_drunet_denoiser
+
         print("Creating DRUNet denoiser...", flush=True)
         return create_drunet_denoiser(
             ground_truth_shape=ground_truth_shape,
@@ -540,9 +547,9 @@ def _adjoint_initialization(
             if bool(pnp_cfg.get("normalize_adjoint_init", False)):
                 peak = torch.abs(reconstruction_batch).amax()
                 if torch.isfinite(peak) and peak > 0:
-                    reconstruction_batch = reconstruction_batch * float(
-                        pnp_cfg["max_pixel"]
-                    ) / peak
+                    reconstruction_batch = (
+                        reconstruction_batch * float(pnp_cfg["max_pixel"]) / peak
+                    )
 
             reconstruction_batch = reconstruction_batch.clamp(
                 float(pnp_cfg["min_pixel"]),
@@ -551,7 +558,9 @@ def _adjoint_initialization(
 
         return reconstruction_batch
 
-    batch_len = int(measurement.shape[0]) if isinstance(measurement, torch.Tensor) else 1
+    batch_len = (
+        int(measurement.shape[0]) if isinstance(measurement, torch.Tensor) else 1
+    )
     return torch.zeros(
         (batch_len, *tuple(ground_truth_shape)[1:]),
         device=compute_device,
@@ -617,9 +626,11 @@ def producer_component(
             packet = {
                 "packet_id": packet_id,
                 "t_source": time.perf_counter(),
-                "x_true": _clone_payload(x_true_raw)
-                if (include_ground_truth and x_true_raw is not None)
-                else None,
+                "x_true": (
+                    _clone_payload(x_true_raw)
+                    if (include_ground_truth and x_true_raw is not None)
+                    else None
+                ),
                 "physics_spec": sample_physics_spec,
             }
 
@@ -718,7 +729,9 @@ def pnp_consumer_component(
         print(f"Consumer compute device: {compute_device}", flush=True)
 
         base_physics_spec = dict(physics_spec or {})
-        base_physics_spec.setdefault("physics_mode", str(pnp_cfg.get("physics_mode", "blur")))
+        base_physics_spec.setdefault(
+            "physics_mode", str(pnp_cfg.get("physics_mode", "blur"))
+        )
         mode = _detect_physics_mode(base_physics_spec)
         physics = None
         active_physics_spec = dict(base_physics_spec)
@@ -776,10 +789,15 @@ def pnp_consumer_component(
                 time.sleep(poll_interval_s)
 
             measurement = _concat_payloads(
-                [_packet_to_measurement(packet, compute_device) for packet in batch_packets]
+                [
+                    _packet_to_measurement(packet, compute_device)
+                    for packet in batch_packets
+                ]
             )
 
-            batch_physics_spec = batch_packets[0].get("physics_spec", active_physics_spec)
+            batch_physics_spec = batch_packets[0].get(
+                "physics_spec", active_physics_spec
+            )
             batch_physics_key = _physics_spec_key(batch_physics_spec)
             if physics is None or batch_physics_key != active_physics_key:
                 print(

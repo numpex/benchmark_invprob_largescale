@@ -57,7 +57,9 @@ class DenoisingInvProb(BaseInvProb):
         for i in range(params.num_frames):
             generator = torch.Generator(device=device).manual_seed(i)
             physics_list.append(
-                Denoising(GaussianNoise(sigma=params.noise_std, rng=generator), device=device)
+                Denoising(
+                    GaussianNoise(sigma=params.noise_std, rng=generator), device=device
+                )
             )
         physics = stack(*physics_list)
 

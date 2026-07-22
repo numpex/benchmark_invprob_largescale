@@ -200,9 +200,11 @@ def summarize_configs(df: pd.DataFrame) -> pd.DataFrame:
             max_iter=("max_iter", "max"),
             final_time_sec=("time", "mean"),
             final_psnr_db=("objective_psnr", "mean"),
-            final_ssim=("objective_ssim", "mean")
-            if "objective_ssim" in final_rows.columns
-            else ("objective_psnr", "size"),
+            final_ssim=(
+                ("objective_ssim", "mean")
+                if "objective_ssim" in final_rows.columns
+                else ("objective_psnr", "size")
+            ),
         )
         .reset_index()
     )
@@ -465,7 +467,9 @@ def plot_training_strong_scaling(
     max_efficiency = 100.0
     all_gpus = sorted(summary["n_gpus"].unique())
 
-    for idx, (group_value, group) in enumerate(summary.groupby(group_col, dropna=False)):
+    for idx, (group_value, group) in enumerate(
+        summary.groupby(group_col, dropna=False)
+    ):
         rows = (
             group.sort_values(["n_gpus", "avg_total_time_sec"], na_position="last")
             .groupby("n_gpus", as_index=False, dropna=False)
@@ -653,7 +657,9 @@ def plot_memory_by_gpu(
 ) -> str:
     """Plot max GPU memory against GPU count grouped by a summary column."""
     fig, ax = plt.subplots(figsize=(9.4, 5.8))
-    for idx, (group_value, group) in enumerate(summary.groupby(group_col, dropna=False)):
+    for idx, (group_value, group) in enumerate(
+        summary.groupby(group_col, dropna=False)
+    ):
         rows = group.sort_values("n_gpus")
         color = COLORWAY[idx % len(COLORWAY)]
         if group_col == "training_image_size":

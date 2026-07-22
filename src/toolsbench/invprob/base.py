@@ -14,8 +14,17 @@ from deepinv.physics import Physics, StackedPhysics
 
 @dataclass
 class InvProb(MappingABC):
-    measurements: torch.Tensor | list[torch.Tensor] | Callable[[int, str | torch.device], torch.Tensor]
-    physics: Physics | StackedPhysics | list[Physics] | Callable[[int, str | torch.device], Physics]
+    measurements: (
+        torch.Tensor
+        | list[torch.Tensor]
+        | Callable[[int, str | torch.device], torch.Tensor]
+    )
+    physics: (
+        Physics
+        | StackedPhysics
+        | list[Physics]
+        | Callable[[int, str | torch.device], Physics]
+    )
     ground_truth_shape: torch.Size
     ground_truth: Optional[torch.Tensor] = None
     num_operators: int = 1
@@ -75,7 +84,7 @@ class InvProb(MappingABC):
             ground_truth = torch.rand(shape, device=device)
 
         # Operators cache the size they were built for; clearing it makes them
-        # rebuild for the new shape. 
+        # rebuild for the new shape.
         pending = [self.physics]
         while pending:
             operator = pending.pop()

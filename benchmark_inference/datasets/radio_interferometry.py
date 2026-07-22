@@ -17,7 +17,6 @@ from toolsbench.invprob.radio_interferometry import run_simulation
 from toolsbench.utils import setup_distributed_env
 from toolsbench.utils.radio_interferometry.radio_utils import get_fits_image_size
 
-
 BENCHMARK_DIR = Path(__file__).resolve().parents[1]
 HOST_WORKSPACE_PATH = BENCHMARK_DIR.parent
 KARABO_IMAGE_PATH = BENCHMARK_DIR / "tools" / "karabo.sif"
@@ -114,7 +113,9 @@ class Dataset(BaseDataset):
     def is_installed(cls, env_name=None, quiet=True, **kwargs):
         if _singularity_allowed_dir():
             return _karabo_image_path().exists()
-        runtime_available = bool(shutil.which("apptainer") or shutil.which("singularity"))
+        runtime_available = bool(
+            shutil.which("apptainer") or shutil.which("singularity")
+        )
         return runtime_available and _karabo_image_path().exists()
 
     def prepare(self, env_name=None, **kwargs):

@@ -112,11 +112,12 @@ def _summarize(df: pd.DataFrame, skip_warmup: int) -> pd.DataFrame:
     df = df.copy()
     # A single GPU can run non-distributed (pure compute) or distributed (tiled);
     # those must not be averaged together, so distribution is part of the key.
-    if {"p_solver_distribute_physics", "p_solver_distribute_denoiser"} <= set(df.columns):
-        df["distributed"] = (
-            df["p_solver_distribute_physics"].astype(bool)
-            | df["p_solver_distribute_denoiser"].astype(bool)
-        )
+    if {"p_solver_distribute_physics", "p_solver_distribute_denoiser"} <= set(
+        df.columns
+    ):
+        df["distributed"] = df["p_solver_distribute_physics"].astype(bool) | df[
+            "p_solver_distribute_denoiser"
+        ].astype(bool)
     else:
         df["distributed"] = df["n_gpus"] > 1
 
@@ -153,9 +154,11 @@ def _add_metrics(summary: pd.DataFrame) -> pd.DataFrame:
         rows[f"{section} compute"] = rows[cuda_col] - rows[comm_col]
     rows["total"] = rows[PARTS].sum(axis=1)
     rows["config"] = [
-        f"{int(n)} GPU\nbaseline"
-        if i == 0
-        else f"{int(n)} GPU\n{'tiled' if int(n) == 1 else 'dist'}"
+        (
+            f"{int(n)} GPU\nbaseline"
+            if i == 0
+            else f"{int(n)} GPU\n{'tiled' if int(n) == 1 else 'dist'}"
+        )
         for i, n in enumerate(rows["n_gpus"])
     ]
 

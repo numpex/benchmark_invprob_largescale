@@ -5,11 +5,9 @@ initialization, normalization strategies, and training curve plotting,
 used by both single-GPU and distributed PnP solvers.
 """
 
-
 import torch
 import copy
 from deepinv.utils import TensorList
-
 
 
 def measurement_to_device(measurement, device: torch.device):
@@ -204,8 +202,10 @@ def profile_roofline(model, x, sigma, bytes_per_elem=4):
             total_bytes[0] += weight.numel() * bytes_per_elem
 
         conv_types = (
-            torch.nn.Conv2d, torch.nn.Conv3d,
-            torch.nn.ConvTranspose2d, torch.nn.ConvTranspose3d,
+            torch.nn.Conv2d,
+            torch.nn.Conv3d,
+            torch.nn.ConvTranspose2d,
+            torch.nn.ConvTranspose3d,
         )
         if isinstance(module, conv_types) and isinstance(out, torch.Tensor):
             weight = module.weight
@@ -218,9 +218,7 @@ def profile_roofline(model, x, sigma, bytes_per_elem=4):
             total_flops[0] += 2 * module.in_features * module.out_features * batch
 
     hooks = [
-        m.register_forward_hook(hook)
-        for m in model.modules()
-        if not list(m.children())
+        m.register_forward_hook(hook) for m in model.modules() if not list(m.children())
     ]
     try:
         with torch.no_grad():

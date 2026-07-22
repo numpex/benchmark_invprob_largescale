@@ -89,7 +89,9 @@ class Solver(BaseSolver):
 
     def run(self, cb):
         if self.distributed_mode:
-            with DistributedContext(seed=42, cleanup=True, deterministic=self.deterministic) as ctx:
+            with DistributedContext(
+                seed=42, cleanup=True, deterministic=self.deterministic
+            ) as ctx:
                 self.ctx = ctx
                 self._run_with_context(cb, ctx)
         else:
@@ -98,8 +100,11 @@ class Solver(BaseSolver):
     def _run_with_context(self, cb, ctx):
         device = get_device_from_context(ctx)
         profiler = create_profiler(
-            self.profiler_mode, device, self.name,
-            warmup=self.profiler_warmup, active=self.profiler_active,
+            self.profiler_mode,
+            device,
+            self.name,
+            warmup=self.profiler_warmup,
+            active=self.profiler_active,
             trace_dir=self.profiler_trace_dir,
             per_step=self.profiler_per_step,
             repeat=self.profiler_repeat,

@@ -136,9 +136,13 @@ def run_simulation(
 
     config = _simulation_config(data_path, radio_params, cache.fits_path)
     if karabo_image_path is None:
-        raise ValueError("karabo_image_path must be provided to run a radio simulation.")
+        raise ValueError(
+            "karabo_image_path must be provided to run a radio simulation."
+        )
     if host_workspace_path is None:
-        raise ValueError("host_workspace_path must be provided to run a radio simulation.")
+        raise ValueError(
+            "host_workspace_path must be provided to run a radio simulation."
+        )
 
     if radio_params.run_on_slurm:
         _submit_slurm_job(
@@ -174,7 +178,9 @@ class RadioInterferometryInvProb(BaseInvProb):
             invprob_config.params,
         )
         if params.batch_size != 1 or invprob_config.batch_size != 1:
-            raise ValueError("RadioInterferometryInvProb currently supports batch_size=1.")
+            raise ValueError(
+                "RadioInterferometryInvProb currently supports batch_size=1."
+            )
 
         device = torch.device(invprob_config.device)
         cache = get_radio_simulation_cache(invprob_config.data_path, params)
@@ -217,7 +223,9 @@ class RadioInterferometryInvProb(BaseInvProb):
 
         if float(params.noise_level) > 0:
             rng = torch.Generator(device=device).manual_seed(int(params.seed))
-            physics.noise_model = GaussianNoise(sigma=float(params.noise_level), rng=rng)
+            physics.noise_model = GaussianNoise(
+                sigma=float(params.noise_level), rng=rng
+            )
             measurements = physics.noise_model(measurements)
 
         return InvProb(
@@ -399,7 +407,9 @@ def _submit_slurm_job(
         kwargs["slurm_setup"] = setup
 
     executor.update_parameters(**kwargs)
-    print(f"Submitting radio simulation Slurm job with parameters: {kwargs}", flush=True)
+    print(
+        f"Submitting radio simulation Slurm job with parameters: {kwargs}", flush=True
+    )
     job = executor.submit(
         _run_container,
         config,

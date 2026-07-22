@@ -137,10 +137,7 @@ def _plot_memory_histogram(summary, ax) -> None:
             max_height = max(max_height, max(finite_values))
         ax.bar_label(
             bars,
-            labels=[
-                f"{value:.1f}" if np.isfinite(value) else ""
-                for value in values
-            ],
+            labels=[f"{value:.1f}" if np.isfinite(value) else "" for value in values],
             padding=3,
             fontsize=8.5,
             color="#374151",
