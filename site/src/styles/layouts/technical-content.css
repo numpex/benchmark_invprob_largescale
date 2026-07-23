@@ -1,4 +1,5 @@
 .technical-width {
+  min-width: 0;
   max-width: 860px;
 }
 
@@ -203,6 +204,7 @@
   border-radius: 4px;
   background: rgba(16, 27, 54, 0.065);
   font-size: 0.86em;
+  overflow-wrap: anywhere;
 }
 
 .technical-body pre {
@@ -221,6 +223,7 @@
   background: none;
   font-size: 0.86rem;
   line-height: 1.7;
+  overflow-wrap: normal;
 }
 
 .technical-body table {

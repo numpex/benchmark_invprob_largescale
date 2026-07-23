@@ -113,12 +113,16 @@ const formatCell = (value: unknown, digits?: number) => {
 
 <style>
   .result-chart {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     margin: 46px 0 54px;
     padding: 26px;
     border: 1px solid var(--line);
     border-radius: 18px;
     background: white;
     box-shadow: 0 18px 55px rgba(16, 27, 54, 0.08);
+    contain: inline-size;
   }
 
   figcaption {
@@ -151,8 +155,12 @@ const formatCell = (value: unknown, digits?: number) => {
   }
 
   .result-chart__canvas {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     min-height: 350px;
     overflow-x: auto;
+    overscroll-behavior-inline: contain;
   }
 
   .result-chart__loading {
@@ -190,7 +198,6 @@ const formatCell = (value: unknown, digits?: number) => {
 
   @media (max-width: 640px) {
     .result-chart {
-      margin-inline: -6px;
       padding: 18px 14px;
       border-radius: 13px;
     }
