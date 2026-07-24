@@ -85,6 +85,7 @@ which memory-saving strategies enable larger images or volumes.
    getting_started/config_guide
    use_cases/index
    solvers/index
+   troubleshooting
 
 Explore the Benchmark
 ---------------------
@@ -119,3 +120,10 @@ Explore the Benchmark
       :class-card: benchmark-card
 
       Understand the algorithms, multi-GPU execution, parameters, and profilers.
+
+   .. grid-item-card:: Troubleshooting
+      :link: troubleshooting
+      :link-type: doc
+      :class-card: benchmark-card
+
+      Diagnose hanging jobs, missing data preparation, and early timeouts.
