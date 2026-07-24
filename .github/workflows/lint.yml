@@ -26,8 +26,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install lint dependencies
+        run: uv sync --locked --only-group test
+
       - name: Check formatting with Black
-        run: uvx black --check src benchmark_training benchmark_inference tests docs
+        run: uv run --no-sync black --check src benchmark_training benchmark_inference tests docs
 
       - name: Lint with Ruff
-        run: uvx ruff check src benchmark_training benchmark_inference tests docs
+        run: uv run --no-sync ruff check src benchmark_training benchmark_inference tests docs

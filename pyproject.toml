@@ -43,8 +43,8 @@ docs = [
 
 [dependency-groups]
 test = [
-    "black",
-    "ruff",
+    "black==26.5.1",
+    "ruff==0.15.8",
     "pytest",
 ]
 
