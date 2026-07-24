@@ -15,7 +15,7 @@ actually running.
 
 **Datasets were not prepared.** BenchOpt calls each dataset's ``prepare()``
 before the run, which is where reusable inputs are downloaded, simulated, and
-cached. Compute nodes usually have no internet access, so a first-time download
+cached. Compute nodes may not have internet access, so a first-time download
 launched from inside the job blocks indefinitely. Prepare the data from a
 login node, which does have network access, before submitting:
 
@@ -26,9 +26,9 @@ login node, which does have network access, before submitting:
 Preparation is cached by BenchOpt, so this is a one-time cost per dataset. See
 :doc:`use_cases/index` for per-dataset preparation details.
 
-**Denoiser weights were not cached.** The DRUNet prior also downloads its
-pretrained weights from the internet on first use (``pretrained="download"``),
-which blocks on an offline compute node the same way an unprepared dataset does.
+**Denoiser weights were not cached.** Pretrained networks weights are downloaded 
+from the internet on first use (``pretrained="download"``), which blocks on an offline 
+compute node the same way an unprepared dataset does.
 ``benchopt prepare`` caches these weights into the shared torch hub cache
 (``~/.cache/torch/hub/checkpoints/``) alongside the dataset inputs, so running it
 from a login node covers both.
