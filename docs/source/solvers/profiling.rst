@@ -21,9 +21,22 @@ The common recording window is controlled by:
    iteration.
 
 ``profiler_save_file`` (default: ``False``)
-   Write profiler CSV data under ``outputs/`` when the backend supports it.
-   This parameter is currently exposed by ``UnrolledPnP``; metrics are still
-   returned to BenchOpt when file output is disabled.
+   Write profiler CSV data under ``outputs/`` when the backend supports it. Both
+   ``PnP`` and ``UnrolledPnP`` expose this parameter; metrics are still returned
+   to BenchOpt when file output is disabled.
+
+How Profiling Works
+-------------------
+
+Each solver wraps its named regions in ``profiler.track_step(name)`` and calls
+``profiler.end_iteration()`` once per BenchOpt iteration. ``track_step`` opens the
+recording context for that region (wall-clock timing on every backend, plus
+operator- and communication-level capture on the torch backend);
+``end_iteration`` closes the iteration, computes ``total_time_sec`` and
+``max_gpu_mb``, and stores the per-iteration values that BenchOpt reads through
+``get_current_metrics()``. Recording is limited to the window set by
+``profiler_warmup`` and ``profiler_active``; outside that window the solver runs
+at full speed and reports nothing.
 
 No Profiling
 ------------
@@ -44,15 +57,19 @@ each region and resets/reads PyTorch peak allocated memory statistics.
 
 **What it measures.** Each active iteration reports ``total_time_sec`` and
 ``max_gpu_mb``. It also reports ``<section>_time_sec`` and
-``<section>_max_gpu_mb`` for every named region. GPU memory is peak tensor
-memory allocated through PyTorch, not total device usage or reserved allocator
-capacity. On CPU, memory fields are zero.
+``<section>_max_gpu_mb`` for every named region. ``total_time_sec`` spans the
+whole iteration, including the BenchOpt objective callback that scores the
+reconstruction (e.g. PSNR/SSIM against the ground truth) and the optimizer step,
+so it exceeds the sum of the ``<section>_time_sec`` values. GPU
+memory is peak tensor memory allocated through PyTorch, not total
+device usage or reserved allocator capacity. On CPU, memory fields are zero.
 
 **Output and trade-offs.** Metrics are returned directly to BenchOpt. With file
 saving enabled, one row per active iteration is written to
 ``outputs/<run-name>_gpu_metrics.csv``. Explicit CUDA synchronization makes the
-timings easy to interpret but adds measurement overhead. This is the preferred
-backend for lightweight scaling and memory studies.
+timings easy to interpret. In distributed runs the denoiser/physics collectives already synchronize the ranks,
+so the added cost is negligible. This is the preferred backend for lightweight
+scaling and memory studies.
 
 PyTorch Profiler
 ----------------
@@ -76,9 +93,10 @@ call ``count`` grouped by iteration, section, and operator.
 ``profiler_per_step`` (default: ``True``)
    When true, each iteration is a separate profiler cycle. Section summaries
    are returned to BenchOpt and optional CSV rows retain the iteration index.
-   When false, operator rows are aggregated over the entire active window with
-   ``iter`` set to ``agg``; only wall time and peak memory are returned as
-   per-iteration BenchOpt metrics.
+   When false, it runs ``torch.profiler`` in standard scheduled mode: one cycle
+   over the whole window, operator rows aggregated with ``iter=agg`` (a lighter
+   CSV), and only wall time and peak memory returned per iteration. This mode
+   can export a Chrome trace via ``profiler_trace_dir``.
 
 ``profiler_repeat`` (default: ``1``)
    With ``profiler_per_step: false``, number of warmup/active schedule cycles.
@@ -93,7 +111,7 @@ call ``count`` grouped by iteration, section, and operator.
 With file saving enabled, detailed rows are written to
 ``outputs/<run-name>_gpu_metrics.csv``. PyTorch profiling has substantially more
 overhead than the custom backend; select a short active window representative of
-steady-state execution.
+steady-state execution. 
 
 NVIDIA Nsight Systems Profiler
 ------------------------------

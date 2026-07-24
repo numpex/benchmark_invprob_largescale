@@ -45,6 +45,7 @@ class Solver(BaseSolver):
         "profiler_trace_dir": [None],
         "profiler_per_step": [True],
         "profiler_repeat": [1],
+        "profiler_save_file": [False],
     }
 
     def set_objective(
@@ -101,6 +102,7 @@ class Solver(BaseSolver):
             trace_dir=self.profiler_trace_dir,
             per_step=self.profiler_per_step,
             repeat=self.profiler_repeat,
+            save_file=self.profiler_save_file,
         )
         with profiler:
             self._algo = PnPSolver(

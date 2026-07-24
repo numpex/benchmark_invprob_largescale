@@ -146,5 +146,5 @@ Execution and reporting
 ``name_prefix`` (default: ``pnp``)
    Prefix used to identify the run and profiler artifacts.
 
-``profiler_mode``, ``profiler_warmup``, ``profiler_active``, ``profiler_trace_dir``, ``profiler_per_step``, ``profiler_repeat``
-   Profiling backend and recording-window options. See :doc:`profiling`.
+``profiler_mode``, ``profiler_warmup``, ``profiler_active``, ``profiler_trace_dir``, ``profiler_per_step``, ``profiler_repeat``, ``profiler_save_file``
+   Profiling backend, recording-window, and output options. See :doc:`profiling`.
