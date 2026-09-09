@@ -86,9 +86,9 @@ def get_radio_simulation_cache(
         fits_size=radio_params.fits_size,
         fits_name=radio_params.fits_name,
     )
-    from toolsbench.utils.radio_interferometry.radio_utils import (
+    from toolsbench.utils.radio_interferometry.fits import load_fits_image
+    from toolsbench.utils.radio_interferometry.simulation import (
         get_meerkat_visibilities_path,
-        load_fits_image,
     )
 
     image = load_fits_image(source_fits_path, normalize=False)
@@ -204,7 +204,7 @@ class RadioInterferometryInvProb(BaseInvProb):
             )
 
         from deepinv.physics import GaussianNoise
-        from toolsbench.utils.radio_interferometry.deepinv_imager import (
+        from toolsbench.utils.radio_interferometry.physics import (
             DeepinvDirtyImager,
             DirtyImagerConfig,
         )
@@ -215,11 +215,15 @@ class RadioInterferometryInvProb(BaseInvProb):
             combine_across_frequencies=False,
         )
         imager = DeepinvDirtyImager(imager_config, device=device)
-        physics, measurements, weights = imager.create_deepinv_physics(
+        result = imager.create_deepinv_physics(
             visibility_path=str(cache.ms_path),
             visibility_format="MS",
             visibility_column="DATA",
+            w_stacking=False,
         )
+        physics = result.physics
+        measurements = result.measurements
+        weights = result.weights
 
         if float(params.noise_level) > 0:
             rng = torch.Generator(device=device).manual_seed(int(params.seed))
@@ -454,7 +458,7 @@ def _load_metadata(metadata_path: Path) -> dict[str, Any]:
 
 
 def _load_ground_truth(fits_path: Path, device: torch.device) -> torch.Tensor:
-    from toolsbench.utils.radio_interferometry.radio_utils import load_fits_image
+    from toolsbench.utils.radio_interferometry.fits import load_fits_image
 
     img_np = load_fits_image(fits_path, normalize=False)
     img = torch.from_numpy(np.ascontiguousarray(img_np, dtype=np.float32))

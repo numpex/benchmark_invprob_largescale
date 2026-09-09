@@ -32,7 +32,6 @@ def _run_torch(p, n_iters, device="cpu"):
 
 
 class TestNullProfiler:
-
     def test_full_interface(self):
         """Entire interface runs without error and returns empty metrics."""
         p = NullProfiler()
@@ -50,7 +49,6 @@ class TestNullProfiler:
 
 
 class TestCustomProfilerRecordingWindow:
-
     def test_enter_resets_state(self):
         p = CustomProfiler(device="cpu", name="test")
         p._all_results = [{"x": 1}]
@@ -97,7 +95,6 @@ class TestCustomProfilerRecordingWindow:
 
 
 class TestCustomProfilerMetrics:
-
     def test_track_step_records_time(self):
         p = CustomProfiler(device="cpu", name="test")
         with p:
@@ -142,6 +139,30 @@ class TestCustomProfilerMetrics:
         p.finalize(None)
         assert not (tmp_path / "outputs" / "myrun_gpu_metrics.csv").exists()
 
+    def test_memory_snapshot_is_logged_and_added_to_metrics(self, monkeypatch, capsys):
+        mib = 1024**2
+        p = CustomProfiler(device="cpu", name="memory-test")
+        p._has_cuda = True
+        monkeypatch.setattr(torch.cuda, "memory_allocated", lambda _device: 10 * mib)
+        monkeypatch.setattr(torch.cuda, "memory_reserved", lambda _device: 12 * mib)
+        monkeypatch.setattr(
+            torch.cuda, "max_memory_allocated", lambda _device: 11 * mib
+        )
+        monkeypatch.setattr(torch.cuda, "max_memory_reserved", lambda _device: 13 * mib)
+        monkeypatch.setattr(
+            torch.cuda, "mem_get_info", lambda _device: (70 * mib, 80 * mib)
+        )
+
+        with p:
+            snapshot = p.snapshot_memory("before_backward")
+            p.end_iteration()
+
+        assert snapshot["allocated_gpu_mb"] == 10.0
+        assert p.get_current_metrics()["before_backward_device_free_gpu_mb"] == 70.0
+        assert "[profiler][cuda-memory][memory-test] before_backward:" in (
+            capsys.readouterr().out
+        )
+
 
 # ---------------------------------------------------------------------------
 # create_profiler factory
@@ -149,7 +170,6 @@ class TestCustomProfilerMetrics:
 
 
 class TestCreateProfiler:
-
     def test_none_mode_returns_null_profiler(self):
         assert isinstance(create_profiler(None, "cpu", "run"), NullProfiler)
 
@@ -247,7 +267,6 @@ class _StubCtx:
 
 
 class TestTorchProfiler:
-
     def test_factory_forwards_params(self):
         p = create_profiler("torch", "cpu", "run", per_step=False, repeat=3)
         assert isinstance(p, TorchProfiler)
@@ -638,7 +657,6 @@ class TestCommAcrossRanks:
 
 
 class TestNvidiaProfiler:
-
     def test_warmup_skips_first_n_iterations(self):
         p = NvidiaProfiler(device="cpu", name="test", warmup=2)
         with p:

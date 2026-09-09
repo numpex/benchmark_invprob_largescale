@@ -10,10 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from toolsbench.utils.radio_interferometry.karabo_utils import (
     generate_meerkat_visibilities,
 )
-from toolsbench.utils.radio_interferometry.radio_utils import (
-    load_config,
-    load_fits_image,
-)
+from toolsbench.utils.radio_interferometry.fits import load_fits_image
+from toolsbench.utils.radio_interferometry.simulation import load_config
 
 
 def generate_data(cfg):

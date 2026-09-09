@@ -466,7 +466,7 @@ def _build_blur_physics(physics_spec, compute_device):
 
 
 def _build_radio_physics(ground_truth_shape, physics_spec, compute_device):
-    from benchmark_invprob_largescale.src.toolsbench.utils.radio_interferometry.deepinv_imager import (
+    from toolsbench.utils.radio_interferometry.physics import (
         MyRadioInterferometry,
     )
 
@@ -478,7 +478,7 @@ def _build_radio_physics(ground_truth_shape, physics_spec, compute_device):
         img_size=(imaging_npixel, imaging_npixel),
         samples_loc=samples_locs,
         real_projection=True,
-        k_oversampling=k_oversampling,
+        nufft_k_oversampling=k_oversampling,
         device=str(compute_device),
     )
 

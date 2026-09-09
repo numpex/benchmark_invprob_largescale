@@ -9,10 +9,12 @@ from toolsbench.invprob.base import InvProb, InvProbConfig
 from toolsbench.invprob.denoising import DenoisingInvProb
 from toolsbench.invprob.multiframe_superres import MultiFrameSuperResInvProb
 from toolsbench.invprob.tomography import TomographyInvProb
-from toolsbench.utils.radio_interferometry.radio_utils import (
+from toolsbench.utils.radio_interferometry.fits import (
     get_fits_image_size,
-    get_meerkat_visibilities_path,
     load_fits_image,
+)
+from toolsbench.utils.radio_interferometry.simulation import (
+    get_meerkat_visibilities_path,
 )
 
 

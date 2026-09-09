@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "benchopt @ git+https://github.com/bmalezieux/benchopt.git@utils_parallel",
     "numpy",
-    "torch<2.10",
+    "torch>=2.10,<2.11",
     "torchvision",
     "matplotlib",
     "plotly",
@@ -22,16 +22,27 @@ dependencies = [
     "submitit",
     "typing-extensions",
     "astra-toolbox",
-    "deepinv @ git+https://github.com/deepinv/deepinv.git@main",
+    "deepinv @ git+https://github.com/bmalezieux/deepinv.git@ddp-feature",
     "simai-bench @ git+https://github.com/argonne-lcf/SimAI-Bench.git",
     "ray>=2.54.1",
 ]
 
 [project.optional-dependencies]
-radio = [
+radio-cuda = [
     "python-casacore",
     "astropy",
-    "torchkbnufft",
+    "pytorch-finufft[cuda] @ git+https://github.com/besnardb/pytorch-finufft.git",
+]
+radio-hip = [
+    "python-casacore",
+    "astropy",
+    "pytorch-finufft[hip] @ git+https://github.com/besnardb/pytorch-finufft.git",
+]
+radio-adastra = [
+    "python-casacore",
+    "astropy",
+    "pytorch-finufft @ git+https://github.com/besnardb/pytorch-finufft.git@d29a4af392a29eb3d64aaaa2aa9abafe1ed8efbe",
+    "cufinufft @ git+https://github.com/besnardb/finufft.git@de0d90fcd3dad5e46054bed738f5fa1a57b5b5ec#subdirectory=python/cufinufft",
 ]
 docs = [
     "sphinx",
@@ -56,6 +67,15 @@ target-version = ["py312"]
 
 [tool.ruff]
 target-version = "py312"
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "radio-cuda" },
+        { extra = "radio-hip" },
+        { extra = "radio-adastra" },
+    ],
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/toolsbench"]
