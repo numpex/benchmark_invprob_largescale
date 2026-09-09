@@ -31,18 +31,18 @@ dependencies = [
 radio-cuda = [
     "python-casacore",
     "astropy",
-    "pytorch-finufft[cuda] @ git+https://github.com/besnardb/pytorch-finufft.git"
+    "pytorch-finufft[cuda] @ git+https://github.com/besnardb/pytorch-finufft.git",
 ]
 radio-hip = [
     "python-casacore",
     "astropy",
-    "pytorch-finufft[hip] @ git+https://github.com/besnardb/pytorch-finufft.git"
+    "pytorch-finufft[hip] @ git+https://github.com/besnardb/pytorch-finufft.git",
 ]
 radio-adastra = [
     "python-casacore",
     "astropy",
     "pytorch-finufft @ git+https://github.com/besnardb/pytorch-finufft.git@d29a4af392a29eb3d64aaaa2aa9abafe1ed8efbe",
-    "cufinufft @ git+https://github.com/besnardb/finufft.git@de0d90fcd3dad5e46054bed738f5fa1a57b5b5ec#subdirectory=python/cufinufft"
+    "cufinufft @ git+https://github.com/besnardb/finufft.git@de0d90fcd3dad5e46054bed738f5fa1a57b5b5ec#subdirectory=python/cufinufft",
 ]
 docs = [
     "sphinx",
@@ -67,6 +67,15 @@ target-version = ["py312"]
 
 [tool.ruff]
 target-version = "py312"
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "radio-cuda" },
+        { extra = "radio-hip" },
+        { extra = "radio-adastra" },
+    ],
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/toolsbench"]

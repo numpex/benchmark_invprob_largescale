@@ -107,7 +107,9 @@ class Objective(BaseObjective):
         with torch.no_grad():
             gt = ground_truth if ground_truth is not None else self.ground_truth
             if gt is None:
-                raise ValueError("The training solver must return its current ground_truth.")
+                raise ValueError(
+                    "The training solver must return its current ground_truth."
+                )
             lo = self.min_pixel if min_pixel is None else float(min_pixel)
             hi = self.max_pixel if max_pixel is None else float(max_pixel)
             reconstruction = reconstruction.to(gt.device)
