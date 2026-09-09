@@ -18,9 +18,9 @@ class Objective(BaseObjective):
 
     def set_data(
         self,
-        ground_truth,
-        measurements,
-        physics,
+        ground_truth=None,
+        measurements=None,
+        physics=None,
         min_pixel=0.0,
         max_pixel=1.0,
         ground_truth_shape=None,
@@ -50,9 +50,9 @@ class Objective(BaseObjective):
         self.measurements = measurements
         self.physics = physics
         self._extra_kwargs = kwargs
-        self.ground_truth_shape = (
-            ground_truth_shape if ground_truth_shape is not None else ground_truth.shape
-        )
+        self.ground_truth_shape = ground_truth_shape
+        if self.ground_truth_shape is None and ground_truth is not None:
+            self.ground_truth_shape = ground_truth.shape
         self.num_operators = num_operators if num_operators is not None else 1
         self.psnr_metric = PSNR(max_pixel=max_pixel)
         self.min_pixel = min_pixel
@@ -64,18 +64,30 @@ class Objective(BaseObjective):
         Includes ``ground_truth`` (unlike the inference objective) so the
         supervised training loss can be computed.
         """
-        return dict(
-            ground_truth=self.ground_truth,
-            measurements=self.measurements,
-            physics=self.physics,
+        objective = dict(
             ground_truth_shape=self.ground_truth_shape,
             num_operators=self.num_operators,
             min_pixel=self.min_pixel,
             max_pixel=self.max_pixel,
             **self._extra_kwargs,
         )
+        if self.ground_truth is not None:
+            objective["ground_truth"] = self.ground_truth
+        if self.measurements is not None:
+            objective["measurements"] = self.measurements
+        if self.physics is not None:
+            objective["physics"] = self.physics
+        return objective
 
-    def evaluate_result(self, reconstruction, name, ground_truth=None, **kwargs):
+    def evaluate_result(
+        self,
+        reconstruction,
+        name,
+        ground_truth=None,
+        min_pixel=None,
+        max_pixel=None,
+        **kwargs,
+    ):
         """Score the reconstruction returned by the solver for this step.
 
         Parameters
@@ -94,13 +106,15 @@ class Objective(BaseObjective):
         """
         with torch.no_grad():
             gt = ground_truth if ground_truth is not None else self.ground_truth
+            if gt is None:
+                raise ValueError("The training solver must return its current ground_truth.")
+            lo = self.min_pixel if min_pixel is None else float(min_pixel)
+            hi = self.max_pixel if max_pixel is None else float(max_pixel)
             reconstruction = reconstruction.to(gt.device)
-            reconstruction = torch.clamp(
-                reconstruction, min=self.min_pixel, max=self.max_pixel
-            )
-            ground_truth = torch.clamp(gt, min=self.min_pixel, max=self.max_pixel)
+            reconstruction = torch.clamp(reconstruction, min=lo, max=hi)
+            ground_truth = torch.clamp(gt, min=lo, max=hi)
 
-            psnr_tensor = self.psnr_metric(reconstruction, ground_truth)
+            psnr_tensor = PSNR(max_pixel=hi)(reconstruction, ground_truth)
             psnr = (
                 psnr_tensor.mean().item()
                 if psnr_tensor.numel() > 1
@@ -116,6 +130,9 @@ class Objective(BaseObjective):
     def get_one_result(self):
         """Return one solution for which the objective can be evaluated."""
         return dict(
-            reconstruction=self.ground_truth + self.ground_truth.std(),
+            reconstruction=torch.zeros(1, 1, 1, 1),
+            ground_truth=torch.ones(1, 1, 1, 1),
+            min_pixel=0.0,
+            max_pixel=1.0,
             name="test_result",
         )

@@ -13,10 +13,10 @@ from karabo.simulation.telescope import Telescope
 from karabo.simulator_backend import SimulatorBackend
 from karabo.calibration.noise_rms import ska_low_noise_rms
 
-from toolsbench.utils.radio_interferometry.radio_utils import (
+from toolsbench.utils.radio_interferometry.fits import get_cellsize_from_fits_wcs
+from toolsbench.utils.radio_interferometry.simulation import (
     MEERKAT_LOCATION,
     draw_random_pointing,
-    get_cellsize_from_fits_wcs,
     get_meerkat_visibilities_path,
     is_source_visible,
 )

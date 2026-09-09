@@ -15,7 +15,7 @@ from toolsbench.data.radio_interferometry import RadioInterferometryData
 from toolsbench.invprob import InvProbConfig, RadioInterferometryInvProb
 from toolsbench.invprob.radio_interferometry import run_simulation
 from toolsbench.utils import setup_distributed_env
-from toolsbench.utils.radio_interferometry.radio_utils import get_fits_image_size
+from toolsbench.utils.radio_interferometry.fits import get_fits_image_size
 
 BENCHMARK_DIR = Path(__file__).resolve().parents[1]
 HOST_WORKSPACE_PATH = BENCHMARK_DIR.parent
