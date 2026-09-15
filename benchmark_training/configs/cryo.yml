@@ -39,7 +39,6 @@ solver:
       profiler_per_step: [true]
       slurm_gres, slurm_ntasks_per_node, slurm_nodes, distribute_model, num_operators, tomography_backend: [
    
-        ["gpu:2", 2, 1, true,  null,   "astra"],
         ["gpu:2", 2, 1, true,  null,   "torch"],
       ]
 
