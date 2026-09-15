@@ -85,13 +85,26 @@ class Objective(BaseObjective):
         name : str
             Name identifier for the solver/configuration.
         **kwargs : dict
-            Optional per-step / GPU metrics from the profiler.
+            Optional per-step / GPU metrics from the profiler. A solver that
+            scores itself — the self-supervised cryo case reports ``fsc_res``,
+            since FSC needs the two half-set reconstructions, not a ground
+            truth — passes its metric through here.
 
         Returns
         -------
         dict
-            ``value`` (negative PSNR for minimization), ``psnr`` plus any forwarded metrics.
+            ``value`` (oriented so that lower is better, as benchopt minimises),
+            the metric itself, plus any forwarded metrics.
         """
+        # Self-supervised solvers score themselves: FSC is computed inside the
+        # solver, where the profiler can time it, and only reported here.
+        if kwargs.get("fsc_res") is not None:
+            result = dict(value=kwargs["fsc_res"])
+            for key, value in kwargs.items():
+                if value is not None:
+                    result[key] = value
+            return result
+
         with torch.no_grad():
             gt = ground_truth if ground_truth is not None else self.ground_truth
             reconstruction = reconstruction.to(gt.device)

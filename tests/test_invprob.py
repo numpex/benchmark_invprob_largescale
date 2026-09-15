@@ -6,6 +6,7 @@ import numpy as np
 from astropy.io import fits
 
 from toolsbench.invprob.base import InvProb, InvProbConfig
+from toolsbench.invprob.cryo_ei import CryoEIInvProb
 from toolsbench.invprob.denoising import DenoisingInvProb
 from toolsbench.invprob.multiframe_superres import MultiFrameSuperResInvProb
 from toolsbench.invprob.tomography import TomographyInvProb
@@ -182,6 +183,58 @@ class TestTomographyInvProb:
             (2, 4),
             (4, 6),
         ]
+
+
+class TestCryoEIInvProb:
+    """The synthetic cryo-ET half-set problem.
+
+    The rest of the cryo case — physics, losses, model, metric — is tested in
+    ``test_cryo.py``, and the solver in ``test_solver.py``.
+    """
+
+    VOLUME_SIZE = (8, 4, 8)
+    NUM_ANGLES = 7
+
+    def _cfg(self, **params):
+        defaults = dict(
+            num_angles=self.NUM_ANGLES,
+            noise_level=0.1,
+            seed=0,
+            tomography_backend="torch",
+        )
+        defaults.update(params)
+        return InvProbConfig(
+            size=self.VOLUME_SIZE,
+            batch_size=1,
+            channels=1,
+            device=torch.device("cpu"),
+            params=defaults,
+        )
+
+    def test_get_invprob_shapes_and_angles(self):
+        invprob = CryoEIInvProb().get_invprob(self._cfg())
+        spec = invprob.physics
+
+        assert invprob.ground_truth.shape == (1, 1, *self.VOLUME_SIZE)
+        assert len(invprob.measurements) == 2
+        for measurement in invprob.measurements:
+            # (B, C, V, A, N): the detector grid is (Y, X) of the volume, and
+            # every half carries the whole tilt series.
+            assert measurement.shape == (
+                1,
+                1,
+                self.VOLUME_SIZE[0],
+                self.NUM_ANGLES,
+                self.VOLUME_SIZE[2],
+            )
+
+        # A half-set is one noise realisation of the *same* geometry, the way
+        # split1/split2 are the even and odd movie frames at each tilt.
+        assert torch.equal(spec.angles_evn, spec.angles_odd)
+        assert spec.angles_evn.tolist() == pytest.approx(
+            torch.linspace(-60.0, 60.0, self.NUM_ANGLES).tolist()
+        )
+        assert not torch.allclose(*invprob.measurements)
 
 
 class TestDenoisingInvProb:
