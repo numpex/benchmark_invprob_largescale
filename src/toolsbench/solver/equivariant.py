@@ -297,6 +297,8 @@ class EquivariantSolver:
         self.module = module
         # Every model call below — step, EqLoss, _recon — goes through this.
         model = self._amp(model)
+        if self.ctx is not None:
+            model = self.ctx.distributed_data_parallel(model)
         optimizer = self._build_optimizer(module)
         transform = Rotate3D(volume_shape=pair.volume_shape)
         self._obs = ObsLoss(gain=self.obs_gain, ramp=self.obs_ramp)
