@@ -6,7 +6,7 @@ from deepinv.distributed import DistributedContext
 
 from toolsbench.profiler import create_profiler
 from toolsbench.solver.radio import RadioTrainingSolver
-from toolsbench.utils import setup_distributed_env
+from toolsbench.utils import distributed_callback_iter, setup_distributed_env
 from toolsbench.utils.solver_utils import build_solver_name
 
 
@@ -147,9 +147,18 @@ class Solver(BaseSolver):
             )
             self._algo.setup()
             with profiler:
-                while cb():
+                for _ in distributed_callback_iter(
+                    cb,
+                    self.world_size > 1,
+                    ctx.device,
+                    ctx,
+                ):
                     self._algo.run_step()
                     profiler.end_iteration(ctx)
+                    print(
+                        "Completed one iteration of the radio training solver.",
+                        flush=True,
+                    )
             profiler.finalize(ctx)
 
     def get_result(self):

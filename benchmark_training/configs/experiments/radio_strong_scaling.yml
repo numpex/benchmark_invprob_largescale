@@ -1,0 +1,85 @@
+# Jean Zay strong-scaling matrix for the preprocessed 20k radio dataset.
+#
+# Submit from the repository root with:
+#   benchopt run benchmark_training \
+#     --config benchmark_training/configs/experiments/radio_strong_scaling.yml \
+#     --parallel-config benchmark_training/configs/config_parallel_radio_jean_zay.yml
+
+
+objective:
+  - reconstruction_objective
+
+dataset:
+  - radio_interferometry:
+      # input_dir: /lustre/fswork/projects/rech/fio/commun/dataset_synth_20k
+      input_dir: /lus/scratch/CT6/cad17810/bmalezieux/dataset_synth_20k
+      image_size: 20000
+      batch_size: 1
+      num_workers: 0
+      pin_memory: false
+      prefetch_factor: 1
+      persistent_workers: false
+      seed: 42
+      resize_fits: false
+      preprocessing_subdir: preprocessing
+      sources_extraction: true
+
+      # Keep the physics identical in sharded and replicated runs.
+      visibility_column: DATA
+      w_stacking: true
+      w_planes: 2
+      w_binning: equal_count
+      physics_sharding: true  # overridden by each coupled solver row
+      bin_data: false
+      binning_factor: 1.25
+      nufft_k_oversampling: 1.5
+      max_visibilities: null
+      visibility_chunk_rows: null
+      weighting_chunk_points: null
+      w_phase_row_chunk_size: 256
+      noise_level: 0.0
+      imager_verbose: 0
+
+solver:
+  - UnrolledRadio:
+      n_iter: 3
+      step_size: null
+      step_size_scale: 0.99
+      denoiser_sigma: 0.001
+      drunet_pretrained: download
+      train_denoiser_sigma: true
+      train_stepsize: true
+      model_learning_rate: 1.0e-6
+      loss: log_mse
+      loss_alpha: 0.5
+      clip_grad_norm: 1.0e-2
+      source_refinement: amplitude_position
+      train_source_update: true
+
+      distribute_denoiser: true
+      patch_size: [1024, 1024]
+      overlap: [32, 32]
+      max_batch_size: 1
+      checkpoint_batches: always
+      device_mode: auto
+      gradient_reduction: mean
+      deterministic: false
+
+      profiler_mode: custom
+      profiler_warmup: 1
+      profiler_active: 2
+      profiler_per_step: true
+
+      slurm_gres, slurm_ntasks_per_node, slurm_nodes, inner_world_size, physics_sharding, name_prefix: [
+        # No DDP.
+        ["gpu:2", 2, 1, 2, true, radio_model_parallel],
+        
+        # Two w-planes sharded over pairs. The pairs are DDP
+        # replicas, giving 2 samples per global step.
+        # ["gpu:4", 4, 1, 2, true, radio_w2_hybrid],
+      ]
+
+max-runs: 3
+n-repetitions: 1
+plot: true
+html: true
