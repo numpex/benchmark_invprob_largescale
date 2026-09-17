@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import gc
 import math
+import time
 
 import torch
+import torch.distributed as dist
 from deepinv.distributed import distribute
 
 from .builder import create_alternating_source_model
 from .model import (
     DynamicRangePnP,
+    compile_denoiser,
     create_drunet,
+    resolve_autocast_dtype,
     set_radio_model_params,
 )
 from .iteration import make_joint_initialization
@@ -31,12 +34,18 @@ class RadioTrainingSolver:
         self.profiler = profiler
         self.config = config
         self.device = ctx.device
+        self.autocast_dtype = resolve_autocast_dtype(self.config.get("autocast_dtype"))
         self.reconstruction = torch.zeros(1, 1, 1, 1, device=self.device)
         self.ground_truth = torch.ones_like(self.reconstruction)
         self.min_pixel = 0.0
         self.max_pixel = 1.0
         self.epoch = 0
         self.iterator = None
+        self.global_batch_size = int(self.data_config.batch_size) * int(
+            self.ctx.dp_world_size
+        )
+        self.step_time_sec = None
+        self.throughput = None
 
     def setup(self):
         cfg = self.data_config
@@ -63,6 +72,12 @@ class RadioTrainingSolver:
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=float(self.config["model_learning_rate"])
         )
+        self.grad_scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=(
+                self.device.type == "cuda" and self.autocast_dtype == torch.float16
+            ),
+        )
 
     def _build_model(self, shape):
         def spatial_pair(value):
@@ -75,6 +90,7 @@ class RadioTrainingSolver:
             self.device,
             pretrained=self.config["drunet_pretrained"],
         ).train()
+        denoiser = compile_denoiser(denoiser, self.config.get("compile", "pre"))
         if self.config["distribute_denoiser"]:
             denoiser = distribute(
                 denoiser,
@@ -93,6 +109,7 @@ class RadioTrainingSolver:
             denoiser,
             norm_strategy=self.config["norm_strategy"],
             denoiser_lambda_relaxation=self.config["denoiser_lambda_relaxation"],
+            autocast_dtype=self.autocast_dtype,
         )
         fidelity = None
         if self.data_config.w_stacking:
@@ -174,7 +191,20 @@ class RadioTrainingSolver:
             return torch.nn.functional.mse_loss(stretch(prediction), stretch(target))
         raise ValueError("loss must be mse, asinh_mse, or log_mse.")
 
+    def _record_step_throughput(self, elapsed_sec: float) -> None:
+        """Record useful samples/s using the slowest global rank's step time."""
+        elapsed = torch.tensor(
+            elapsed_sec,
+            dtype=torch.float64,
+            device=self.device,
+        )
+        if self.ctx.use_dist:
+            self.ctx.all_reduce(elapsed, op=dist.ReduceOp.MAX, group=dist.group.WORLD)
+        self.step_time_sec = float(elapsed.item())
+        self.throughput = self.global_batch_size / max(self.step_time_sec, 1e-12)
+
     def run_step(self):
+        step_started = time.perf_counter()
         with self.profiler.track_step("data_loading"):
             batch = self._next_batch()
             batch = batch.to(self.device, non_blocking=self.device.type == "cuda")
@@ -246,17 +276,18 @@ class RadioTrainingSolver:
         self.profiler.snapshot_memory("before_backward")
         try:
             with self.profiler.track_step("backward"):
-                if self.device.type == "cuda":
-                    torch.cuda.empty_cache()
-                loss.backward()
+                self.grad_scaler.scale(loss).backward()
         except Exception:
             self.profiler.snapshot_memory("backward_failure")
             raise
         with self.profiler.track_step("optimizer"):
+            if self.grad_scaler.is_enabled():
+                self.grad_scaler.unscale_(self.optimizer)
             clip = float(self.config["clip_grad_norm"])
             if clip > 0:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), clip)
-            self.optimizer.step()
+            self.grad_scaler.step(self.optimizer)
+            self.grad_scaler.update()
 
         self.reconstruction = prediction.detach()
         self.ground_truth = x.detach()
@@ -264,8 +295,8 @@ class RadioTrainingSolver:
         del loss, image_loss, diffuse_loss, prediction, x, batch
         if self.device.type == "cuda":
             torch.cuda.synchronize(self.device)
-            gc.collect()
-            torch.cuda.empty_cache()
+
+        self._record_step_throughput(time.perf_counter() - step_started)
 
     def get_result(self):
         result = {
@@ -273,6 +304,9 @@ class RadioTrainingSolver:
             "ground_truth": self.ground_truth,
             "min_pixel": self.min_pixel,
             "max_pixel": self.max_pixel,
+            "global_batch_size": self.global_batch_size,
+            "step_time_sec": self.step_time_sec,
+            "throughput": self.throughput,
         }
         result.update(self.profiler.get_current_metrics())
         return result
