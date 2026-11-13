@@ -53,5 +53,6 @@ solver:
 
 max-runs: 5
 n-repetitions: 1
+timeout: 45m   # benchopt default is 100 s, shorter than setup; stays inside the 1h slurm limit
 plot: true
 html: true

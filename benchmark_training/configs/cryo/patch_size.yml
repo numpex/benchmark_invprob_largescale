@@ -24,11 +24,11 @@ solver:
       eq_weight: [2.0]
       eq_noise: [0.0]
       eq_scale_free: [false]
-      # fixed (bf16 so the volume fits)
+      # fixed (bf16 so the volume fits), same as the later sweeps
       mixed_precision: ["bf16"]
-      compile_model: [false]
+      compile_model: [true]
       tomography_backend: ["auto"]
-      num_operators: [null]
+      num_operators: ["auto"]
       inner_world_size: [null]
       cudnn_benchmark: [false]
       distribute_model: [true]
@@ -38,8 +38,7 @@ solver:
         [64,  4],  #  96^3 x 4
         [96,  2],  # 128^3 x 2
         [128, 1],  # 160^3
-        [192, 1],  # 224^3
-        [256, 1],  # 288^3
+        [176, 1],  # 208^3 (224^3 hits the int32 limit in MIOpen conv backward)
       ]
       # profiling
       profiler_mode: [custom]
@@ -51,5 +50,6 @@ solver:
 
 max-runs: 5
 n-repetitions: 1
+timeout: 45m   # benchopt default is 100 s, shorter than setup; stays inside the 1h slurm limit
 plot: true
 html: true

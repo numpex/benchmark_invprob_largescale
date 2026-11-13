@@ -13,7 +13,7 @@ dataset:
 
 solver:
   - Equivariant:
-      preset: ["tomo_ei", "unrolled"]
+      preset: ["tomo_ei"]
       # unrolled only
       n_iter: [2]
       init_stepsize: [0.9]
@@ -39,22 +39,18 @@ solver:
       profiler_mode: [custom]
       profiler_per_step: [true]
       profiler_warmup: [0]
-      # swept
-      checkpoint_batches, max_batch_size: [
-        [never, 1],
-        [never, 2],
-        [always, 1],
-        [always, 2],
-      ]
-      slurm_gres, slurm_ntasks_per_node, slurm_nodes: [
-        ["gpu:4", 4, 1],   #  4 GPUs, 64 tiles/GPU
-        ["gpu:4", 4, 2],   #  8 GPUs, 32 tiles/GPU
-        ["gpu:4", 4, 4],   # 16 GPUs, 16 tiles/GPU
-        ["gpu:4", 4, 8],   # 32 GPUs,  8 tiles/GPU
-        ["gpu:4", 4, 16],  # 64 GPUs,  4 tiles/GPU
+      checkpoint_batches, max_batch_size, slurm_gres, slurm_ntasks_per_node, slurm_nodes: [
+        [always, 1, "gpu:4", 4, 1],    #   4 GPUs, 64 tiles/GPU
+        [always, 1, "gpu:4", 4, 2],    #   8 GPUs, 32 tiles/GPU
+        [always, 1, "gpu:4", 4, 4],    #  16 GPUs, 16 tiles/GPU
+        [always, 1, "gpu:4", 4, 8],    #  32 GPUs,  8 tiles/GPU
+        [always, 1, "gpu:4", 4, 16],   #  64 GPUs,  4 tiles/GPU
+        [always,  1, "gpu:4", 4, 32],   # 128 GPUs,  2 tiles/GPU
+        [never,  1, "gpu:4", 4, 32],   # 128 GPUs,  2 tiles/GPU
       ]
 
 max-runs: 5
 n-repetitions: 1
+timeout: 45m   # benchopt default is 100 s, shorter than setup; stays inside the 1h slurm limit
 plot: true
 html: true

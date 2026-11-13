@@ -5,7 +5,7 @@ slurm_stderr_to_stdout: True
 slurm_python: $SHAREDWORKDIR/env_cryo/.venv/bin/python
 slurm_additional_parameters:
   cpus-per-task: 16
-  account: <your_project>   
+  account: <your_project>    
   constraint: MI300
 slurm_setup:
   # Activates the venv and loads ROCm 10, gcc and fftw. Must come first: it
