@@ -1,0 +1,101 @@
+# Adastra scaling for the preprocessed 20k radio dataset: 4 to 64 GPUs, tiling one image vs groups + DDP.
+#
+# Submit from the repository root with:
+#   benchopt run benchmark_training \
+#     --config benchmark_training/configs/experiments/radio_strong_scaling.yml \
+#     --parallel-config benchmark_training/configs/config_parallel_adastra_radio.yml
+
+
+objective:
+  - reconstruction_objective
+
+dataset:
+  - radio_interferometry:
+      # input_dir: /lustre/fswork/projects/rech/fio/commun/dataset_synth_20k
+      input_dir: /lus/work/CT10/gda2603/SHARED/radio_dataset/dataset_synth_20k/
+      image_size: 20000
+      batch_size: 1
+      num_workers: 0
+      pin_memory: false
+      prefetch_factor: 1
+      persistent_workers: false
+      seed: 42
+      resize_fits: false
+      preprocessing_subdir: preprocessing
+      sources_extraction: true
+
+      # Keep the physics identical in sharded and replicated runs.
+      visibility_column: DATA
+      w_stacking: true
+      w_planes: 4  # overridden by each solver row: one plane per GPU
+      w_binning: equal_count
+      physics_sharding: true  # overridden by each coupled solver row
+      bin_data: false
+      binning_factor: 1.25
+      nufft_k_oversampling: 1.25  # as in demo_radio
+      max_visibilities: null
+      visibility_chunk_rows: null
+      weighting_chunk_points: null
+      w_phase_row_chunk_size: 256
+      noise_level: 0.0
+      imager_verbose: 0
+
+solver:
+  - UnrolledRadio:
+      n_iter: 3
+      step_size: null
+      step_size_scale: 0.99
+      denoiser_sigma: 0.001
+      drunet_pretrained: download
+      train_denoiser_sigma: true
+      train_stepsize: true
+      model_learning_rate: 1.0e-6
+      loss: log_mse
+      loss_alpha: 0.5
+      clip_grad_norm: 1.0e-2
+      source_refinement: amplitude_position
+      train_source_update: true
+
+      distribute_denoiser: true
+      patch_size: [1024, 1024]
+      overlap: [64, 64]  # as in demo_radio
+      max_batch_size: 1
+      checkpoint_batches: always
+      device_mode: auto
+      gradient_reduction: mean
+      deterministic: false
+
+      profiler_mode: custom
+      profiler_warmup: 0
+      profiler_per_step: true
+
+      # inner_world_size = GPUs per image (>= 4: one image does not fit on fewer);
+      # the remaining groups are DDP replicas. w_planes = GPUs per image.
+      slurm_gres, slurm_ntasks_per_node, slurm_nodes, inner_world_size, w_planes, physics_sharding, name_prefix: [
+        # 4 GPUs
+        ["gpu:4", 4, 1, 4, 4, true, radio_inner4],
+        # 8 GPUs
+        ["gpu:4", 4, 2, 8, 8, true, radio_inner8],
+        ["gpu:4", 4, 2, 4, 4, true, radio_inner4],
+        # 16 GPUs
+        ["gpu:4", 4, 4, 16, 16, true, radio_inner16],
+        ["gpu:4", 4, 4, 8, 8, true, radio_inner8],
+        ["gpu:4", 4, 4, 4, 4, true, radio_inner4],
+        # 32 GPUs
+        ["gpu:4", 4, 8, 32, 32, true, radio_inner32],
+        ["gpu:4", 4, 8, 16, 16, true, radio_inner16],
+        ["gpu:4", 4, 8, 8, 8, true, radio_inner8],
+        ["gpu:4", 4, 8, 4, 4, true, radio_inner4],
+        # 64 GPUs
+        ["gpu:4", 4, 16, 64, 64, true, radio_inner64],
+        ["gpu:4", 4, 16, 32, 32, true, radio_inner32],
+        ["gpu:4", 4, 16, 16, 16, true, radio_inner16],
+        ["gpu:4", 4, 16, 8, 8, true, radio_inner8],
+        ["gpu:4", 4, 16, 4, 4, true, radio_inner4],
+      ]
+
+max-runs: 3
+n-repetitions: 1
+timeout: 45m   # benchopt default is 100 s, shorter than setup; stays inside the 1h slurm limit
+plot: true
+html: true

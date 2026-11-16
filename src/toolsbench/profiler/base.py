@@ -25,6 +25,14 @@ class BenchProfiler(ABC):
     def get_current_metrics(self) -> dict:
         """Return the latest per-iteration metrics — called from get_result() mid-run."""
 
+    def snapshot_memory(self, name: str, log: bool = True) -> dict:
+        """Capture an optional named accelerator-memory snapshot.
+
+        Profilers without memory telemetry keep this as a no-op so solvers can
+        instrument critical boundaries independently of the selected backend.
+        """
+        return {}
+
     @abstractmethod
     def finalize(self, ctx) -> None:
         """Write all outputs (CSV, JSON, …) at end of run."""

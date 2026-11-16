@@ -141,7 +141,9 @@ class Dataset(BaseDataset):
 
     def _buffer_root(self):
         """Local buffer directory used to cache measurement tensors as .pt files."""
-        buffer_root = Path(__file__).resolve().parents[1] / "data" / "radio_interferometry"
+        buffer_root = (
+            Path(__file__).resolve().parents[1] / "data" / "radio_interferometry"
+        )
         buffer_root.mkdir(parents=True, exist_ok=True)
         return buffer_root
 
@@ -170,7 +172,9 @@ class Dataset(BaseDataset):
         completed = []
         discarded_incomplete = []
 
-        for sample_dir in sorted((p for p in data_root.iterdir() if p.is_dir()), key=lambda p: p.name):
+        for sample_dir in sorted(
+            (p for p in data_root.iterdir() if p.is_dir()), key=lambda p: p.name
+        ):
             parsed_size = self._parse_sample_folder_size(sample_dir.name)
             if parsed_size is None:
                 continue
@@ -193,8 +197,12 @@ class Dataset(BaseDataset):
                 completed.append(
                     {
                         "folder": sample_dir,
-                        "image_path": self._single_path(fits_paths, "FITS file", sample_dir),
-                        "metadata_path": self._single_path(json_paths, "JSON metadata file", sample_dir),
+                        "image_path": self._single_path(
+                            fits_paths, "FITS file", sample_dir
+                        ),
+                        "metadata_path": self._single_path(
+                            json_paths, "JSON metadata file", sample_dir
+                        ),
                         "ms_path": self._single_path(ms_paths, "MS folder", sample_dir),
                         "image_size": parsed_size,
                     }
@@ -218,7 +226,10 @@ class Dataset(BaseDataset):
         return completed
 
     def _build_stream_records(self, data_root, buffer_root, device):
-        from toolsbench.utils.deepinv_imager import DeepinvDirtyImager, DirtyImagerConfig
+        from toolsbench.utils.radio_interferometry.physics import (
+            DeepinvDirtyImager,
+            DirtyImagerConfig,
+        )
 
         max_samples = int(self.max_samples)
         if max_samples < 1:
@@ -239,7 +250,9 @@ class Dataset(BaseDataset):
         selected_samples = capped_samples[:requested_stream_length]
         buffer_root = Path(buffer_root)
         buffer_root.mkdir(parents=True, exist_ok=True)
-        source_hash = hashlib.sha1(str(Path(data_root).resolve()).encode("utf-8")).hexdigest()[:12]
+        source_hash = hashlib.sha1(
+            str(Path(data_root).resolve()).encode("utf-8")
+        ).hexdigest()[:12]
         source_buffer_root = buffer_root / f"source_{source_hash}"
         source_buffer_root.mkdir(parents=True, exist_ok=True)
 
@@ -289,12 +302,16 @@ class Dataset(BaseDataset):
                     imaging_npixel,
                 )
                 imager = DeepinvDirtyImager(imager_config, device=device)
-                physics, measurements, weights = imager.create_deepinv_physics(
+                result = imager.create_deepinv_physics(
                     visibility_path=str(ms_path),
                     visibility_format="MS",
                     visibility_column=str(self.visibility_column),
                     bin_data=False,
+                    w_stacking=False,
                 )
+                physics = result.physics
+                measurements = result.measurements
+                weights = result.weights
                 print(
                     f"Caching measurements for sample {stream_idx} at {measurement_cache_path}..."
                 )

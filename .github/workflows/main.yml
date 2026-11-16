@@ -26,7 +26,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install project
-        run: uv sync --all-groups --all-extras
+        run: uv sync --locked --all-groups --extra radio-cuda
 
       - name: Tests
         run: uv run pytest

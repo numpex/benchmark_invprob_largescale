@@ -37,6 +37,7 @@ class CustomProfiler(BenchProfiler):
         self._save_file = save_file
         self._iter_count: int = 0
         self._step_metrics: dict[str, dict] = {}
+        self._memory_snapshots: dict[str, dict[str, float]] = {}
         self._all_results: list[dict] = []
         self._current_metrics: dict = {}
         self._iter_t0: float = 0.0
@@ -52,6 +53,7 @@ class CustomProfiler(BenchProfiler):
         self._all_results = []
         self._current_metrics = {}
         self._step_metrics = {}
+        self._memory_snapshots = {}
         self._iter_count = 0
         self._iter_t0 = time.perf_counter()
         return self
@@ -82,6 +84,56 @@ class CustomProfiler(BenchProfiler):
                 ),
             }
 
+    def snapshot_memory(self, name: str, log: bool = True) -> dict:
+        """Capture allocator and device memory, printing it immediately.
+
+        Immediate logging is intentional: a failed CUDA iteration never
+        reaches end_iteration, so its last snapshot would otherwise be absent
+        from both Benchopt results and profiler CSV files.
+        """
+        if not self._has_cuda:
+            return {}
+        try:
+            divisor = 1024**2
+            free_bytes, total_bytes = torch.cuda.mem_get_info(self._device)
+            snapshot = {
+                "allocated_gpu_mb": round(
+                    torch.cuda.memory_allocated(self._device) / divisor, 1
+                ),
+                "reserved_gpu_mb": round(
+                    torch.cuda.memory_reserved(self._device) / divisor, 1
+                ),
+                "peak_allocated_gpu_mb": round(
+                    torch.cuda.max_memory_allocated(self._device) / divisor, 1
+                ),
+                "peak_reserved_gpu_mb": round(
+                    torch.cuda.max_memory_reserved(self._device) / divisor, 1
+                ),
+                "device_free_gpu_mb": round(free_bytes / divisor, 1),
+                "device_total_gpu_mb": round(total_bytes / divisor, 1),
+            }
+        except Exception as error:
+            if log:
+                print(
+                    f"[profiler][cuda-memory][{self._name}] {name}: "
+                    f"snapshot unavailable ({error})",
+                    flush=True,
+                )
+            return {}
+
+        if self._is_recording():
+            self._memory_snapshots[str(name)] = snapshot
+        if log:
+            values = " ".join(
+                f"{key.removesuffix('_gpu_mb')}={value:.1f}MiB"
+                for key, value in snapshot.items()
+            )
+            print(
+                f"[profiler][cuda-memory][{self._name}] {name}: {values}",
+                flush=True,
+            )
+        return snapshot
+
     def end_iteration(self, ctx=None):
         if self._is_recording():
             total_time = time.perf_counter() - self._iter_t0
@@ -92,9 +144,13 @@ class CustomProfiler(BenchProfiler):
             for name, m in self._step_metrics.items():
                 captured[f"{name}_time_sec"] = m["time_sec"]
                 captured[f"{name}_max_gpu_mb"] = m["max_gpu_mb"]
+            for name, snapshot in self._memory_snapshots.items():
+                for metric, value in snapshot.items():
+                    captured[f"{name}_{metric}"] = value
             self._all_results.append(captured)
             self._current_metrics = captured
         self._step_metrics = {}
+        self._memory_snapshots = {}
         self._iter_count += 1
         self._iter_t0 = time.perf_counter()
 
