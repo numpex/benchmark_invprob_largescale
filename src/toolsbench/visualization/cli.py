@@ -33,6 +33,9 @@ from toolsbench.visualization.website.comm import (
     create_communication_inference_website_data,
     create_communication_training_website_data,
 )
+from toolsbench.visualization.website.cryo_training import (
+    create_cryo_training_website_data,
+)
 from toolsbench.visualization.website.compile_speedup import (
     create_compile_speedup_website_data,
 )
@@ -218,6 +221,15 @@ def _build_website_parser() -> argparse.ArgumentParser:
         help="Root directory where finding JSON data is written.",
     )
 
+    cryo = subparsers.add_parser(
+        "cryo_training",
+        aliases=["cryo-training"],
+        help="Export the cryo-ET training data (Adastra).",
+    )
+    for name in ("speedup", "patch-size", "checkpointing", "tiling"):
+        cryo.add_argument(f"--{name}-results", required=True, help="Parquet file.")
+    cryo.add_argument("--output-dir", default="site/src/data/results")
+
     compile_speedup = subparsers.add_parser(
         "compile_speedup",
         aliases=["compile-speedup"],
@@ -350,6 +362,14 @@ def _run_website(args, parser: argparse.ArgumentParser) -> list[Path]:
             scaling_results=args.scaling_results,
             checkpointing_results=args.checkpointing_results,
             batch_size_results=args.batch_size_results,
+            output_dir=Path(args.output_dir),
+        )
+    if finding == "cryo_training":
+        return create_cryo_training_website_data(
+            speedup_results=args.speedup_results,
+            patch_size_results=args.patch_size_results,
+            checkpointing_results=args.checkpointing_results,
+            tiling_results=args.tiling_results,
             output_dir=Path(args.output_dir),
         )
     if finding == "compile_speedup":

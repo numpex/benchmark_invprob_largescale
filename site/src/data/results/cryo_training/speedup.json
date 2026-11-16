@@ -1,0 +1,72 @@
+{
+  "id": "cryo-speedup",
+  "methodology": {
+    "deviceMemoryGb": 128,
+    "efficiencyPct": "100 x t4 x 4 / (t x gpuCount), t per volume",
+    "miopenFindMode": "FAST (kernels picked by heuristic, no tuning)",
+    "peakMemoryGb": "peak allocated GPU memory of forward and backward",
+    "trainSec": "forward + backward time, median of steps 3-5"
+  },
+  "provenance": {
+    "accelerator": null,
+    "benchmarkGitTag": null,
+    "config": "benchmark_training/configs/cryo/speedup.yml",
+    "platform": "Linux",
+    "runDate": "2026-11-10T16:18:59.695379",
+    "source": "benchmark_training/outputs/cluster/adastra/benchmark_training/outputs/drivers/driver_5938675/benchopt_run_2026-11-10_16h18m59.parquet",
+    "sourceSha256": "12f24968325e5da1145f482dec6f8fa1571e7ac0f35d3f5c81015286dd9f2dbe"
+  },
+  "schemaVersion": 1,
+  "values": [
+    {
+      "backwardSec": 51.20167,
+      "forwardSec": 17.368607,
+      "peakMemoryGb": 48.345734,
+      "speedup": 5.294675,
+      "speedupPct": 429.46749,
+      "status": "measured",
+      "trainSec": 68.570277,
+      "variant": "bf16"
+    },
+    {
+      "backwardSec": 49.302779,
+      "forwardSec": 14.477009,
+      "peakMemoryGb": 46.300723,
+      "speedup": 5.692357,
+      "speedupPct": 469.235703,
+      "status": "measured",
+      "trainSec": 63.779788,
+      "variant": "all combined"
+    },
+    {
+      "backwardSec": 313.31453,
+      "forwardSec": 45.380376,
+      "peakMemoryGb": 51.40074,
+      "speedup": 1.012162,
+      "speedupPct": 1.216192,
+      "status": "measured",
+      "trainSec": 358.694906,
+      "variant": "distributed physics"
+    },
+    {
+      "backwardSec": 315.895819,
+      "forwardSec": 47.173689,
+      "peakMemoryGb": 51.549178,
+      "speedup": 1.0,
+      "speedupPct": 0.0,
+      "status": "measured",
+      "trainSec": 363.057324,
+      "variant": "baseline"
+    },
+    {
+      "backwardSec": 315.813165,
+      "forwardSec": 46.192952,
+      "peakMemoryGb": 52.442525,
+      "speedup": 1.002918,
+      "speedupPct": 0.291812,
+      "status": "measured",
+      "trainSec": 362.000961,
+      "variant": "compile"
+    }
+  ]
+}

@@ -1,0 +1,287 @@
+---
+title: "Training a 3D cryo-ET denoiser across GPUs"
+description: "Where the step time of self-supervised cryo-ET training goes on MI300A, what activation checkpointing buys, and why small tiling groups with data parallelism scale better than tiling one volume over every GPU."
+eyebrow: "Cryo-ET training"
+featured: false
+pageType: "article"
+landingSection: "findings"
+---
+
+import ResultChart from "../../../components/results/ResultChart.astro";
+import speedupData from "../../../data/results/cryo_training/speedup.json";
+import patchSizeData from "../../../data/results/cryo_training/patch-size.json";
+import checkpointingData from "../../../data/results/cryo_training/checkpointing.json";
+import tilingData from "../../../data/results/cryo_training/tiling-vs-ddp.json";
+import {
+speedupSpec,
+patchSizeSpec,
+checkpointingEfficiencySpec,
+checkpointingMemorySpec,
+tilingSpec,
+} from "../../../lib/results/cryoTrainingCharts";
+
+export const commHref = `${import.meta.env.BASE_URL}findings/communication/`;
+export const trainHref = `${import.meta.env.BASE_URL}findings/training_scaling/`;
+
+export const repo = "https://github.com/numpex/benchmark_invprob_largescale/blob/main/";
+export const configHref = (name) => `${repo}benchmark_training/configs/cryo/${name}`;
+
+Cryo-electron tomography (cryo-ET) images frozen biological samples by
+recording a tilt series: a few dozen projections of the same specimen, each
+taken at a different angle and at a very low electron dose. Reconstructing
+the volume from these projections yields a 3D map that is dominated by noise,
+and there is no clean reference to train a denoiser against. The denoiser is
+therefore trained on the measured data itself, in a self-supervised way, and
+the training has to run on full-size volumes.
+
+That is where the cost comes from. A volume of 1024×512×1024 voxels holds 537
+million voxels, 2.1 GB in fp32 before any network has been applied. A 3D
+convolutional network produces feature maps with as many spatial positions as
+the volume, multiplied by the number of channels, and the backward pass needs
+them. One training step on such a volume takes minutes on four GPUs. This
+page measures what shortens that step, what makes it fit in memory, and how it
+should be spread over GPUs.
+
+## The method being trained
+
+The tilt series is split into two half-sets with independent noise, $y_e$ and
+$y_o$. Each is reconstructed by filtered back-projection (FBP), and a 3D U-Net
+$f_\theta$ denoises both reconstructions, giving $x_e$ and $x_o$. Each result
+is scored against the other half:
+
+$$
+\begin{aligned}
+\mathcal{L}_{\text{obs}} &= \lVert A_o x_e - y_o \rVert^2 + \lVert A_e x_o - y_e \rVert^2,\\
+\mathcal{L}_{\text{eq}} &= \lVert f_\theta(\mathrm{FBP}_e(A_e T x_e)) - T x_o \rVert^2
+  + \lVert f_\theta(\mathrm{FBP}_o(A_o T x_o)) - T x_e \rVert^2,
+\end{aligned}
+$$
+
+with $A$ the projection operators, $T$ a random rotation and
+$\mathcal{L} = \mathcal{L}_{\text{obs}} + \lambda\,\mathcal{L}_{\text{eq}}$
+($\lambda = 2$ in all runs here).
+A step therefore runs $f_\theta$ four times on the full volume, all
+differentiated, each time on overlapping tiles distributed over the GPUs.
+
+The runs on this page use a synthetic tilt series modelled on EMPIAR-11830: a
+1024×512×1024 volume and 41 tilt angles over ±60°. They ran on Adastra, with
+four AMD MI300A APUs per node. In each APU, the CPU and the GPU share
+**128 GB** of memory. The CPU side uses about 10 GB at peak in these runs, so
+the 128 GB is treated below as the memory of the GPU. Times are the
+forward + backward time of a training step, as the median of steps 3 to 5;
+the first two steps are warm-up and are discarded. Memory is the peak
+per-GPU allocation of forward and backward. Parallel efficiency is
+$100 \times t_4 \times 4 / (t_N \times N)$, against the 4-GPU run.
+
+Four benchmark configurations produce everything below. They all live in
+`benchmark_training/configs/cryo/`, and each figure names the one it came from:
+
+| Configuration | Patch / overlap | GPUs | What it sweeps |
+|---|---|---|---|
+| <a href={configHref("speedup.yml")}><code>speedup.yml</code></a> | 128 / 16 | 4 | precision, compilation, distributed physics |
+| <a href={configHref("patch_size.yml")}><code>patch_size.yml</code></a> | 64 to 192 / 16 | 4 | patch size |
+| <a href={configHref("checkpointing.yml")}><code>checkpointing.yml</code></a> | 128 / 16 | 4 to 128 | checkpointing `always` and `never` |
+| <a href={configHref("dp_vs_tiling_tomo_ei.yml")}><code>dp_vs_tiling_tomo_ei.yml</code></a> | 128 / 16 | 4 to 64 | GPUs per volume |
+
+The volume is the same in every configuration. The sections build on each
+other: each one fixes a setting that the following ones keep. All runs used
+`MIOPEN_FIND_MODE=FAST`, under which MIOpen selects convolution kernels by
+heuristic instead of benchmarking them. Absolute times are therefore an upper
+bound on what tuned kernels would give; every comparison below is between runs
+that share this setting.
+
+## Precision, compilation and distributed physics: where the step time goes
+
+In fp32, one step takes six minutes on four GPUs, and each sweep on this page
+repeats it for several steps and configurations. The step cost is therefore
+the first thing to reduce. Each row below changes one setting against the
+baseline: fp32, no compilation, and the physics (the tomography operator)
+replicated on every rank. With distributed physics, the operator is split by
+tilt angle across the ranks.
+
+<ResultChart
+  id="cryo-speedup"
+  title="bf16 carries the speedup"
+  description="Forward + backward time per step on 4 GPUs. Each row changes one setting against the fp32 baseline; the last row combines all three."
+  values={speedupData.values}
+  spec={speedupSpec}
+  note="Labels are the speedup over the baseline, (t_baseline / t − 1) × 100. Configuration: speedup.yml."
+  tableColumns={[
+    { key: "variant", label: "Variant" },
+    { key: "forwardSec", label: "Forward (s)", digits: 1 },
+    { key: "backwardSec", label: "Backward (s)", digits: 1 },
+    { key: "trainSec", label: "Fwd + bwd (s)", digits: 1 },
+    { key: "speedupPct", label: "Speedup (%)", digits: 1 },
+    { key: "peakMemoryGb", label: "Peak memory (GB)", digits: 1 },
+  ]}
+/>
+
+**Precision sets the step time.** bf16 alone makes the step 5.3× faster, from
+363 s to 69 s (+429%). Almost all of the gain is in the backward pass, which
+drops from 316 s to 51 s: the step is dominated by the 3D convolutions of the
+denoiser, and bf16 is what makes them cheap.
+
+The other two settings are small in fp32: distributed physics gives 1.2%
+(363.1 s to 358.7 s) and compilation 0.3%. With the convolutions in fp32,
+nothing else in the step is large enough to matter. Once bf16 has reduced
+them, compilation and distributed physics together save a further 7.5% (68.6 s
+to 63.8 s), mostly in the forward pass; the sweep does not separate the two.
+Combined, the three settings make the step 5.7× faster (+469%).
+
+**All runs below use bf16, compilation and distributed physics.**
+
+## Patch size: limited by the convolution library, not by memory
+
+The volume is cut into cubic tiles that are denoised independently and blended
+over their overlap. The patch size sets how many tiles there are and how large
+each convolution is: larger tiles mean fewer, larger kernels and less
+recomputed overlap.
+
+<ResultChart
+  id="cryo-patch-size"
+  title="Larger patches are faster, up to a hard limit"
+  description="Forward + backward time (left) and peak memory per GPU (right) against patch size, on 4 GPUs. The dashed line is the 128 GB of an MI300A."
+  values={patchSizeData.values}
+  spec={patchSizeSpec}
+  note="Patch 192 does not run: a 224³ tile with 192 channels exceeds the 32-bit index range of MIOpen's 3D convolution. Configuration: patch_size.yml."
+  tableColumns={[
+    { key: "patchSize", label: "Patch", digits: 0 },
+    { key: "trainSec", label: "Fwd + bwd (s)", digits: 1 },
+    { key: "peakMemoryGb", label: "Peak memory (GB)", digits: 1 },
+    { key: "status", label: "Status" },
+  ]}
+/>
+
+**The limit is set by MIOpen, not by memory.** Going from patch 64 to 128
+halves the step (121 s to 65 s). Peak memory stays between 46 and 53 GB at
+every patch size, far below the 128 GB of the APU, yet patch 192 fails: its
+tile exceeds the 32-bit index range of the 3D convolution. Patch 176 is a
+further 8% faster than 128, but uses 6.5 GB more and does not divide the
+1024-voxel axes of the volume.
+
+**The rest of this page uses patch 128.**
+
+## Checkpointing and strong scaling: one volume, more GPUs
+
+The feature maps of a 3D network are sized by the volume, not by the network,
+and the backward pass needs all of them. Activation checkpointing discards each
+tile's activations in the forward pass and recomputes them in the backward
+pass: it trades compute for memory. Spreading the volume over more GPUs also
+divides the activations between ranks, and shortens the step. Here the volume is fixed and the number of GPUs varies from 4 to 128,
+with checkpointing `always` and `never`.
+
+<ResultChart
+  id="cryo-checkpointing-memory"
+  title="Without checkpointing the volume does not fit"
+  description="Peak per-GPU memory with and without activation checkpointing, against GPU count. The dashed line is the 128 GB of an MI300A."
+  values={checkpointingData.values}
+  spec={checkpointingMemorySpec}
+  note="The marked 'never' entries are not gaps in the sweep: those runs ran out of the 128 GB at 4, 8, 16 and 64 GPUs, and carry no measurement. Configuration: checkpointing.yml."
+  tableColumns={[
+    { key: "checkpointMode", label: "Checkpointing" },
+    { key: "gpuCount", label: "GPUs", digits: 0 },
+    { key: "peakMemoryGb", label: "Peak memory (GB)", digits: 1 },
+    { key: "trainSec", label: "Fwd + bwd (s)", digits: 1 },
+    { key: "status", label: "Status" },
+  ]}
+/>
+
+**Without checkpointing, the volume fits only at 128 GPUs.** At 4, 8, 16 and 64
+GPUs, `never` ran out of the 128 GB; at 128 GPUs it needs 78.5 GB. With
+checkpointing, every configuration stays between 42 and 46 GB.
+
+<ResultChart
+  id="cryo-strong-scaling"
+  title="Efficiency drops as the volume spreads across nodes"
+  description="Parallel efficiency of forward + backward against GPU count, one volume tiled over all GPUs, normalized to the 4-GPU run. A flat line at 100% would be perfect strong scaling."
+  values={checkpointingData.values}
+  spec={checkpointingEfficiencySpec}
+  note="Same runs as the memory figure. The 'never' point is the 128-GPU run, the only 'never' run that completed. Configuration: checkpointing.yml."
+  tableColumns={[
+    { key: "checkpointMode", label: "Checkpointing" },
+    { key: "gpuCount", label: "GPUs", digits: 0 },
+    { key: "trainSec", label: "Fwd + bwd (s)", digits: 1 },
+    { key: "efficiencyPct", label: "Efficiency (%)", digits: 1 },
+  ]}
+/>
+
+**Efficiency drops as GPUs are added.** The step falls from 64.8 s on 4 GPUs
+to 20.1 s on 64 and 21.0 s on 128; efficiency is 72% at 8 GPUs, 49% at 16, 32%
+at 32 and 20% at 64. As on the <a href={trainHref}>training scaling page</a>,
+more GPUs means less efficiency. Here it is worse for two reasons: the
+collectives move the full 1024×512×1024 volume, whose size does not shrink with
+the GPU count, and every run beyond 4 GPUs spans several nodes.
+
+**Against this loss, checkpointing is a small cost.** At 128 GPUs, `never` is
+7% faster than `always` (19.6 s against 21.0 s), while the efficiency there is
+about 10%. A faster training comes from spreading each volume over fewer GPUs,
+with DDP across groups (next section).
+
+Above 41 ranks, some ranks hold no tilt angle, and memory per GPU rises from
+42 GB at 32 GPUs to 46 GB at 64. A run on 32 GPUs with the operator restricted
+to 16 ranks reproduces the rise.
+
+**Everything below runs with checkpointing `always`.**
+
+## GPUs per volume: tiling groups with data parallelism
+
+Spreading one volume over more GPUs is one way to use a larger machine; the
+other is to train on several volumes at once. Every run below tiles the
+volume. What changes is how many GPUs share one volume. With $k$ GPUs per
+volume, the $N$ GPUs form $N/k$ groups: each group tiles its own volume, and
+DDP averages the gradients across groups. $k = N$ is the single-group case of
+the previous section, without DDP; $k = 1$ gives each GPU a whole volume, still
+processed tile by tile. A step processes one volume per group, so efficiency
+is computed on the time per volume.
+
+<ResultChart
+  id="cryo-tiling-vs-ddp"
+  title="Small tiling groups plus DDP keep the GPUs busy"
+  description="Efficiency per volume against GPU count, one line per number of GPUs that tile one volume, normalized to the 4-GPU run. The right panel zooms on 1, 2 and 4 GPUs per volume."
+  values={tilingData.values}
+  spec={tilingSpec}
+  note="Each group of k GPUs tiles its own volume; DDP averages gradients across groups. 1 and 2 GPUs per volume were run up to 16 GPUs. Checkpointing is on. Configuration: dp_vs_tiling_tomo_ei.yml."
+  tableColumns={[
+    { key: "gpuCount", label: "GPUs", digits: 0 },
+    { key: "gpusPerVolume", label: "GPUs per volume", digits: 0 },
+    { key: "trainSec", label: "Fwd + bwd (s)", digits: 1 },
+    { key: "perVolumeSec", label: "Per volume (s)", digits: 1 },
+    { key: "efficiencyPct", label: "Efficiency (%)", digits: 1 },
+    { key: "peakMemoryGb", label: "Peak memory (GB)", digits: 1 },
+  ]}
+/>
+
+**Small groups with DDP keep efficiency near 100%.** DDP only all-reduces the
+gradients of the U-Net, which are small next to the volume, so adding groups
+costs almost nothing. With 4 GPUs per volume, each group stays within one node,
+and efficiency stays at 96–99% up to 64 GPUs. Larger groups span several nodes
+and carry the losses of the previous section: 66–67% with 8 GPUs per volume,
+48–52% with 16, about 31% with 32 and 19% with 64. One, two and four GPUs per
+volume perform the same: all stay within one node, where communication is
+fast. Values above 100% are run-to-run noise, which depends on the nodes
+allocated.
+
+For a fixed number of GPUs, the trade is time per volume against volumes per
+step. On 64 GPUs, 4 per volume gives 16 volumes per 65-second step, 4.1 s per
+volume; a single group over all 64 gives one volume per 20.6-second step. The
+groups of 4 process five times more volumes per second; a single group over
+all 64 GPUs only shortens the time of one step, which matters only when there
+is a single volume to train on.
+
+## What to actually do
+
+1. **Use bf16 first.** It makes the step 5.3× faster on its own, because the
+   step is dominated by 3D convolutions. Compilation and distributed physics
+   add 7.5% on top of it, and almost nothing without it.
+2. **Use the largest patch that runs and divides the volume.** Larger tiles
+   mean fewer, larger convolutions. On MI300A, MIOpen's 32-bit indexing sets
+   the limit long before the 128 GB of memory does.
+3. **Keep checkpointing on unless the run already spans enough GPUs to fit
+   without it.** Dropping it saves 7% of the step at 128 GPUs, but only 128
+   GPUs fit it, and there the parallel efficiency is about 10%.
+4. **Keep each volume within one node, and add groups with DDP.** The number
+   of GPUs per volume follows from the GPUs available, the number of volumes
+   wanted per step, and the minimum that fits one volume (a single GPU here,
+   with checkpointing). Any choice up to 4 GPUs per volume stays within one
+   node and keeps efficiency near 100% up to 64 GPUs; a volume over several
+   nodes is bounded by the full-volume collectives between them.
