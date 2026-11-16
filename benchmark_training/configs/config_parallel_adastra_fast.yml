@@ -1,0 +1,27 @@
+backend: submitit
+slurm_time: 3600   # 1h starts much sooner than 2h (backfill)
+slurm_stderr_to_stdout: True
+# Shared cryo environment (bench_rocm/ADASTRA_SETUP.md); expanded in the job.
+slurm_python: $SHAREDWORKDIR/env_cryo/.venv/bin/python
+slurm_additional_parameters:
+  cpus-per-task: 24      # physical cores per MI300A APU
+  hint: nomultithread
+  account: <your_project>  
+  constraint: MI300
+slurm_setup:
+  # Activates the venv and loads ROCm 10, gcc and fftw. Must come first: it
+  # runs `module purge`.
+  - source $SHAREDWORKDIR/env_cryo/.venv/bin/activate.poverlay
+  # No MIOpen cache, no kernel search, stable GPU memory. Use with
+  # cudnn_benchmark=false. FAST picks kernels by heuristic and allocates only
+  # their workspace. Same results, but ~20% slower steps than tuned kernels:
+  # fine for sweeps and memory checks, not for timing comparisons.
+  - export MIOPEN_FIND_MODE=FAST
+  # Job-local MIOpen files on node-local /tmp, so nothing is written to $HOME.
+  - export MIOPEN_USER_DB_PATH=/tmp/${USER}-miopen-fast-${SLURM_JOB_ID}
+  - export MIOPEN_CUSTOM_CACHE_DIR=$MIOPEN_USER_DB_PATH
+  - export HSA_NO_SCRATCH_RECLAIM=1   # avoids RCCL degraded mode
+  - export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True   # less fragmentation, as in demo_cyo
+  # torch.compile in-process: no worker pool, whose shutdown can hold the node 300 s at exit
+  - export TORCHINDUCTOR_COMPILE_THREADS=1
+  - export NCCL_DEBUG=INFO
