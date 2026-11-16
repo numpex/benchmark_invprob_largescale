@@ -7,7 +7,7 @@
 // slots sit under 3:1 contrast, so every figure on the page ships its
 // "View figure data" table as the required relief.
 
-const config = {
+export const config = {
   background: null,
   font: "Inter, ui-sans-serif, system-ui, sans-serif",
   view: { stroke: null },
@@ -42,14 +42,14 @@ const config = {
 };
 
 // Categorical slots, assigned in fixed order and never cycled.
-const series = ["#2a78d6", "#eb6834", "#1baf7a"];
+export const series = ["#2a78d6", "#eb6834", "#1baf7a"];
 
 // Ordinal ramp for per-GPU workload, which is an ordered magnitude rather than
 // an identity — one hue, light (small workload) to dark (large workload).
 const workloadRamp = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"];
 
-const guideColor = "#8290a8";
-const annotationColor = "#50617d";
+export const guideColor = "#8290a8";
+export const annotationColor = "#50617d";
 
 /** Per-GPU memory of the cluster's V100 cards, in MiB. */
 export const DEVICE_MEMORY_MB = 32768;
@@ -87,14 +87,14 @@ const checkpointColor = {
   scale: { domain: ["always", "never"], range: [series[0], series[1]] },
 };
 
-const lineMark = {
+export const lineMark = {
   type: "line" as const,
   point: { filled: true, size: 85 },
   strokeWidth: 2,
 };
 
 /** Dashed horizontal reference at the ideal value of a ratio axis. */
-const idealRule = (value: number, label: string) => [
+export const idealRule = (value: number, label: string) => [
   {
     mark: { type: "rule", strokeDash: [6, 5], color: guideColor },
     encoding: { y: { datum: value } },

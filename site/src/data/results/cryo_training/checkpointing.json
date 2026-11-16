@@ -1,0 +1,112 @@
+{
+  "id": "cryo-checkpointing",
+  "methodology": {
+    "deviceMemoryGb": 128,
+    "efficiencyPct": "100 x t4 x 4 / (t x gpuCount), t per volume",
+    "miopenFindMode": "FAST (kernels picked by heuristic, no tuning)",
+    "peakMemoryGb": "peak allocated GPU memory of forward and backward",
+    "trainSec": "forward + backward time, median of steps 3-5"
+  },
+  "provenance": {
+    "accelerator": null,
+    "benchmarkGitTag": null,
+    "config": "benchmark_training/configs/cryo/checkpointing.yml",
+    "platform": "Linux",
+    "runDate": "2026-11-13T04:53:16.567420",
+    "source": "benchmark_training/outputs/cluster/adastra/benchmark_training/outputs/drivers/driver_5962518/benchopt_run_2026-11-13_04h53m16.parquet",
+    "sourceSha256": "571b784da0f242d1472f5f4997ff3ee2c7a9bbe2560f21b8ad69610693464f80"
+  },
+  "schemaVersion": 1,
+  "values": [
+    {
+      "backwardSec": 49.763427,
+      "checkpointMode": "always",
+      "efficiencyPct": 100.0,
+      "forwardSec": 15.267045,
+      "gpuCount": 4,
+      "peakMemoryGb": 46.300723,
+      "status": "measured",
+      "trainSec": 64.816669
+    },
+    {
+      "backwardSec": 32.601178,
+      "checkpointMode": "always",
+      "efficiencyPct": 72.042987,
+      "forwardSec": 12.37566,
+      "gpuCount": 8,
+      "peakMemoryGb": 44.040957,
+      "status": "measured",
+      "trainSec": 44.984718
+    },
+    {
+      "backwardSec": 22.673406,
+      "checkpointMode": "always",
+      "efficiencyPct": 49.341306,
+      "forwardSec": 10.112751,
+      "gpuCount": 16,
+      "peakMemoryGb": 42.895449,
+      "status": "measured",
+      "trainSec": 32.840978
+    },
+    {
+      "backwardSec": 16.633096,
+      "checkpointMode": "always",
+      "efficiencyPct": 32.374861,
+      "forwardSec": 8.410663,
+      "gpuCount": 32,
+      "peakMemoryGb": 42.393008,
+      "status": "measured",
+      "trainSec": 25.025848
+    },
+    {
+      "backwardSec": 13.042491,
+      "checkpointMode": "always",
+      "efficiencyPct": 20.150685,
+      "forwardSec": 7.061251,
+      "gpuCount": 64,
+      "peakMemoryGb": 46.10661,
+      "status": "measured",
+      "trainSec": 20.103742
+    },
+    {
+      "backwardSec": 13.269215,
+      "checkpointMode": "always",
+      "efficiencyPct": 9.652283,
+      "forwardSec": 7.655454,
+      "gpuCount": 128,
+      "peakMemoryGb": 46.219281,
+      "status": "measured",
+      "trainSec": 20.984889
+    },
+    {
+      "backwardSec": 12.158218,
+      "checkpointMode": "never",
+      "efficiencyPct": 10.333987,
+      "forwardSec": 7.437462,
+      "gpuCount": 128,
+      "peakMemoryGb": 78.478049,
+      "status": "measured",
+      "trainSec": 19.600576
+    },
+    {
+      "checkpointMode": "never",
+      "gpuCount": 4,
+      "status": "out of memory"
+    },
+    {
+      "checkpointMode": "never",
+      "gpuCount": 8,
+      "status": "out of memory"
+    },
+    {
+      "checkpointMode": "never",
+      "gpuCount": 16,
+      "status": "out of memory"
+    },
+    {
+      "checkpointMode": "never",
+      "gpuCount": 64,
+      "status": "out of memory"
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "id": "cryo-patch-size",
+  "methodology": {
+    "deviceMemoryGb": 128,
+    "efficiencyPct": "100 x t4 x 4 / (t x gpuCount), t per volume",
+    "miopenFindMode": "FAST (kernels picked by heuristic, no tuning)",
+    "peakMemoryGb": "peak allocated GPU memory of forward and backward",
+    "trainSec": "forward + backward time, median of steps 3-5"
+  },
+  "provenance": {
+    "accelerator": null,
+    "benchmarkGitTag": null,
+    "config": "benchmark_training/configs/cryo/patch_size.yml",
+    "platform": "Linux",
+    "runDate": "2026-11-10T15:38:30.960324",
+    "source": "benchmark_training/outputs/cluster/adastra/benchmark_training/outputs/drivers/driver_5938668/benchopt_run_2026-11-10_15h38m30.parquet",
+    "sourceSha256": "b940ff41d0471405d5f8614d0e22d201683e20cdc26a938ff19b6644bdce5fd9"
+  },
+  "schemaVersion": 1,
+  "values": [
+    {
+      "backwardSec": 96.322403,
+      "forwardSec": 24.349457,
+      "patchSize": 64,
+      "peakMemoryGb": 48.726411,
+      "status": "measured",
+      "trainSec": 120.673586
+    },
+    {
+      "backwardSec": 73.782559,
+      "forwardSec": 19.78395,
+      "patchSize": 96,
+      "peakMemoryGb": 48.440034,
+      "status": "measured",
+      "trainSec": 93.607072
+    },
+    {
+      "backwardSec": 49.871482,
+      "forwardSec": 14.795047,
+      "patchSize": 128,
+      "peakMemoryGb": 46.300723,
+      "status": "measured",
+      "trainSec": 64.648284
+    },
+    {
+      "backwardSec": 46.264374,
+      "forwardSec": 13.140264,
+      "patchSize": 176,
+      "peakMemoryGb": 52.783629,
+      "status": "measured",
+      "trainSec": 59.404638
+    },
+    {
+      "patchSize": 192,
+      "status": "MIOpen int32 limit"
+    }
+  ]
+}
