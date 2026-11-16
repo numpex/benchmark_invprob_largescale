@@ -52,6 +52,8 @@ class RadioTrainingSolver:
         sharding_override = self.config["physics_sharding"]
         if sharding_override is not None:
             cfg.physics_sharding = bool(sharding_override)
+        if self.config["w_planes"] is not None:
+            cfg.w_planes = int(self.config["w_planes"])
         if cfg.physics_sharding and not cfg.w_stacking:
             raise ValueError("physics_sharding requires w_stacking=true.")
         if cfg.physics_sharding and int(self.ctx.inner_world_size) < 2:
@@ -68,7 +70,9 @@ class RadioTrainingSolver:
         self.sampler = bundle.sampler
         self.model = self._build_model(bundle.ground_truth_shape)
         if int(self.ctx.dp_world_size) > 1:
-            self.model = self.ctx.distributed_data_parallel(self.model)
+            self.model = self.ctx.distributed_data_parallel(
+                self.model, find_unused_parameters=True
+            )
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=float(self.config["model_learning_rate"])
         )

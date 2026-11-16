@@ -35,7 +35,7 @@ def compile_denoiser(denoiser, mode="pre"):
     return torch.compile(
         denoiser,
         fullgraph=True,
-        mode="max-autotune",
+        mode="max-autotune-no-cudagraphs",  # CUDA graphs reuse outputs that backward still needs
     )
 
 

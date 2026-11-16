@@ -49,6 +49,7 @@ class Solver(BaseSolver):
         # A solver parameter so sharding can be coupled to the SLURM topology
         # without creating invalid Cartesian products in experiment configs.
         "physics_sharding": [None],
+        "w_planes": [None],  # None keeps the dataset value
         # Number of ranks cooperating on one sample. Remaining orthogonal
         # groups are data-parallel replicas managed by DDP.
         "inner_world_size": [1],
@@ -146,6 +147,7 @@ class Solver(BaseSolver):
                         "max_batch_size",
                         "checkpoint_batches",
                         "physics_sharding",
+                        "w_planes",
                     )
                 },
             )
